@@ -4,3 +4,9 @@ djangorestframework==3.17.1
 sqlparse==0.5.5
 tzdata==2026.3
 djangorestframework-simplejwt==5.5.1
+
+#배포 관련 의존성 패키지
+gunicorn
+whitenoise
+dj-database-url
+psycopg2-binary
