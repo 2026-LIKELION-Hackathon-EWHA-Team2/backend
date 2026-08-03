@@ -4,7 +4,7 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User
+from .models import PatientProfile, User
 
 
 
@@ -115,3 +115,23 @@ class UserLoginSerializer(serializers.Serializer):
             "access": str(refresh_token.access_token),
             "refresh": str(refresh_token),
         }
+
+
+class PatientProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PatientProfile
+        fields = (
+            "patient_id",
+            "name",
+            "passport_number",
+            "birth_date",
+            "nationality",
+            "phone",
+            "residence_country",
+        )
+        read_only_fields = fields
