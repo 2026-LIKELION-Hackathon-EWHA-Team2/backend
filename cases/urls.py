@@ -31,7 +31,7 @@ urlpatterns = [
         name="case-transfer",
     ),
     path(
-    "<int:case_id>/chat/messages/",
+    "<int:case_id>/chat/rooms/<int:room_id>/messages/",
     CaseChatMessageListCreateView.as_view(),
     name="case-chat-message-list-create",
     ),

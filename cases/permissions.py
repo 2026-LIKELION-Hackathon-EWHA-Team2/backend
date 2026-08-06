@@ -1,4 +1,5 @@
 from rest_framework.permissions import BasePermission
+from .models import MedicalCase
 
 
 class IsPatient(BasePermission):
@@ -45,3 +46,28 @@ def check_chat_room_access(request, chat_room):
         raise PermissionDenied(
             "종료된 협진 채팅방입니다."
         )
+
+
+class IsCaseChatParticipant(BasePermission):
+    message = "해당 협진 채팅방에 접근할 권한이 없습니다."
+
+    def has_permission(self, request, view):
+        return (
+            request.user.is_authenticated
+            and request.user.user_type == "HOSPITAL"
+        )
+
+    def has_object_permission(self, request, view, chat_room):
+        if not chat_room.is_active:
+            return False
+
+        if (
+            chat_room.medical_case.status
+            != MedicalCase.Status.TRANSFERRED
+        ):
+            return False
+
+        return request.user.id in {
+            chat_room.medical_case.origin_hospital_id,
+            chat_room.partner_hospital_id,
+        }
