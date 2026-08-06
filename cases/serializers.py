@@ -5,6 +5,7 @@ from rest_framework import serializers
 from accounts.models import User
 from .models import (
     CaseAdverseEffect,
+    CaseChatMessage,
     CaseIngredient,
     MedicalCase,
 )
@@ -256,3 +257,44 @@ class CaseTransferSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+
+
+class CaseChatMessageSerializer(serializers.ModelSerializer):
+    sender_hospital_id = serializers.IntegerField(
+        source="sender.id",
+        read_only=True,
+    )
+
+    sender_hospital_name = serializers.CharField(
+        source="sender.name",
+        read_only=True,
+    )
+
+    content = serializers.CharField(
+        max_length=4000,
+        trim_whitespace=True,
+    )
+
+    class Meta:
+        model = CaseChatMessage
+        fields = (
+            "id",
+            "sender_hospital_id",
+            "sender_hospital_name",
+            "content",
+            "created_at",
+        )
+        read_only_fields = (
+            "id",
+            "sender_hospital_id",
+            "sender_hospital_name",
+            "created_at",
+        )
+
+    def validate_content(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "메시지 내용을 입력해 주세요."
+            )
+
+        return value
