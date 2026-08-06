@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AdverseEffectUpdateView,
+    CaseChatMessageListCreateView,
     CaseTransferView,
     MedicalCaseDetailView,
     MedicalCaseListCreateView,
@@ -28,5 +29,10 @@ urlpatterns = [
         "<int:case_id>/transfer/",
         CaseTransferView.as_view(),
         name="case-transfer",
+    ),
+    path(
+    "<int:case_id>/chat/rooms/<int:room_id>/messages/",
+    CaseChatMessageListCreateView.as_view(),
+    name="case-chat-message-list-create",
     ),
 ]

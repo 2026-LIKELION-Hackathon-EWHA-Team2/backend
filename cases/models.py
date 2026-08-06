@@ -115,3 +115,57 @@ class CaseAdverseEffect(models.Model):
                 name="unique_case_adverse_effect",
             )
         ]
+
+
+class CaseChatRoom(models.Model):
+    medical_case = models.ForeignKey(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="chat_rooms",
+    )
+
+    partner_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="partner_chat_rooms",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "medical_case",
+                    "partner_hospital",
+                ),
+                name="unique_case_partner_chat_room",
+            ),
+        ]
+
+
+class CaseChatMessage(models.Model):
+    chat_room = models.ForeignKey(
+        CaseChatRoom,
+        on_delete=models.PROTECT,
+        related_name="messages",
+    )
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sent_case_chat_messages",
+    )
+
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+        indexes = [
+            models.Index(
+                fields=("chat_room", "id"),
+                name="chat_room_message_idx",
+            ),
+        ]

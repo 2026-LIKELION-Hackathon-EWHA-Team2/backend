@@ -4,20 +4,20 @@ from django.shortcuts import render
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import MedicalCase
-from .permissions import IsPatient
+from .models import CaseChatRoom, MedicalCase
+from .permissions import IsCaseChatParticipant, IsPatient
 from .serializers import (
     AdverseEffectUpdateSerializer,
+    CaseChatMessageSerializer,
     CaseTransferSerializer,
     MedicalCaseCreateSerializer,
     MedicalCaseDetailSerializer,
 )
-
 
 class MedicalCaseListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
@@ -53,15 +53,19 @@ class MedicalCaseListCreateView(generics.ListCreateAPIView):
                 "병원 회원만 케이스를 생성할 수 있습니다."
             )
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data,
+        )
         serializer.is_valid(raise_exception=True)
 
         medical_case = serializer.save(
-            origin_hospital=request.user
+            origin_hospital=request.user,
         )
 
         return Response(
-            MedicalCaseDetailSerializer(medical_case).data,
+            MedicalCaseDetailSerializer(
+                medical_case
+            ).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -82,22 +86,34 @@ class MedicalCaseDetailView(APIView):
             id=case_id,
         )
 
-        is_patient = medical_case.patient == request.user
-        is_origin = medical_case.origin_hospital == request.user
-
+        is_patient = (
+            medical_case.patient_id
+            == request.user.id
+        )
+        is_origin = (
+            medical_case.origin_hospital_id
+            == request.user.id
+        )
         is_partner = (
-            medical_case.partner_hospital == request.user
+            medical_case.partner_hospital_id
+            == request.user.id
             and medical_case.status
             == MedicalCase.Status.TRANSFERRED
         )
 
-        if not (is_patient or is_origin or is_partner):
+        if not (
+            is_patient
+            or is_origin
+            or is_partner
+        ):
             raise PermissionDenied(
-                "해당 케이스를 조회할 수 없습니다."
+                "해당 케이스를 조회할 권한이 없습니다."
             )
 
         return Response(
-            MedicalCaseDetailSerializer(medical_case).data
+            MedicalCaseDetailSerializer(
+                medical_case
+            ).data
         )
 
 
@@ -113,13 +129,17 @@ class AdverseEffectUpdateView(APIView):
 
         serializer = AdverseEffectUpdateSerializer(
             data=request.data,
-            context={"medical_case": medical_case},
+            context={
+                "medical_case": medical_case,
+            },
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
         return Response(
-            MedicalCaseDetailSerializer(medical_case).data
+            MedicalCaseDetailSerializer(
+                medical_case
+            ).data
         )
 
 
@@ -141,5 +161,76 @@ class CaseTransferView(APIView):
         serializer.save()
 
         return Response(
-            MedicalCaseDetailSerializer(medical_case).data
+            MedicalCaseDetailSerializer(
+                medical_case
+            ).data
+        )
+
+
+class CaseChatMessageListCreateView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+        IsCaseChatParticipant,
+    ]
+
+    def get_chat_room(self, request, case_id, room_id):
+        chat_room = get_object_or_404(
+            CaseChatRoom.objects.select_related(
+                "medical_case",
+                "medical_case__origin_hospital",
+                "partner_hospital",
+            ),
+            id=room_id,
+            medical_case_id=case_id,
+        )
+
+        self.check_object_permissions(
+            request,
+            chat_room,
+        )
+
+        return chat_room
+
+    def get(self, request, case_id, room_id):
+        chat_room = self.get_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        messages = (
+            chat_room.messages
+            .select_related("sender")
+            .order_by("id")
+        )
+
+        return Response(
+            {
+                "messages": CaseChatMessageSerializer(
+                    messages,
+                    many=True,
+                ).data
+            }
+        )
+
+    def post(self, request, case_id, room_id):
+        chat_room = self.get_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        serializer = CaseChatMessageSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        message = serializer.save(
+            chat_room=chat_room,
+            sender=request.user,
+        )
+
+        return Response(
+            CaseChatMessageSerializer(message).data,
+            status=status.HTTP_201_CREATED,
         )
