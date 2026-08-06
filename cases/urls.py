@@ -30,4 +30,9 @@ urlpatterns = [
         CaseTransferView.as_view(),
         name="case-transfer",
     ),
+    path(
+    "<int:case_id>/chat/messages/",
+    CaseChatMessageListCreateView.as_view(),
+    name="case-chat-message-list-create",
+    ),
 ]

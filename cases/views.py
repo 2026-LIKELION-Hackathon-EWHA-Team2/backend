@@ -144,3 +144,114 @@ class CaseTransferView(APIView):
         return Response(
             MedicalCaseDetailSerializer(medical_case).data
         )
+
+
+class CaseChatMessageListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    DEFAULT_LIMIT = 50
+    MAX_LIMIT = 100
+
+    def get_medical_case(self, request, case_id):
+        if request.user.user_type != "HOSPITAL":
+            raise PermissionDenied(
+                "병원 회원만 협진 채팅을 이용할 수 있습니다."
+            )
+
+        # 협진 당사자가 아니면 케이스 존재 여부도 노출하지 않음
+        return get_object_or_404(
+            MedicalCase.objects.select_related(
+                "origin_hospital",
+                "partner_hospital",
+            ).filter(
+                Q(origin_hospital=request.user)
+                | Q(partner_hospital=request.user)
+            ),
+            id=case_id,
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+
+    def get_query_params(self, request):
+        try:
+            after_id = int(request.query_params.get("after_id", 0))
+            limit = int(
+                request.query_params.get(
+                    "limit",
+                    self.DEFAULT_LIMIT,
+                )
+            )
+        except (TypeError, ValueError):
+            raise ValidationError(
+                {"detail": "after_id와 limit은 정수여야 합니다."}
+            )
+
+        if after_id < 0:
+            raise ValidationError(
+                {"after_id": "0 이상의 값이어야 합니다."}
+            )
+
+        if limit < 1 or limit > self.MAX_LIMIT:
+            raise ValidationError(
+                {
+                    "limit": (
+                        f"1 이상 {self.MAX_LIMIT} 이하의 "
+                        "값이어야 합니다."
+                    )
+                }
+            )
+
+        return after_id, limit
+
+    def get(self, request, case_id):
+        medical_case = self.get_medical_case(
+            request,
+            case_id,
+        )
+        after_id, limit = self.get_query_params(request)
+
+        messages = list(
+            medical_case.chat_messages.filter(
+                id__gt=after_id,
+            )
+            .select_related("sender")
+            .order_by("id")[: limit + 1]
+        )
+
+        has_more = len(messages) > limit
+        messages = messages[:limit]
+
+        return Response(
+            {
+                "messages": CaseChatMessageSerializer(
+                    messages,
+                    many=True,
+                ).data,
+                "has_more": has_more,
+                "next_after_id": (
+                    messages[-1].id
+                    if messages
+                    else after_id
+                ),
+            }
+        )
+
+    def post(self, request, case_id):
+        medical_case = self.get_medical_case(
+            request,
+            case_id,
+        )
+
+        serializer = CaseChatMessageSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        message = serializer.save(
+            medical_case=medical_case,
+            sender=request.user,
+        )
+
+        return Response(
+            CaseChatMessageSerializer(message).data,
+            status=status.HTTP_201_CREATED,
+        )
