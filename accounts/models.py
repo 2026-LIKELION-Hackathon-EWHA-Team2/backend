@@ -77,3 +77,16 @@ class PatientProfile(models.Model):
 
     def __str__(self):
         return self.user.name
+
+
+class Language(models.TextChoices):
+    KOREAN = "ko", "한국어"
+    ENGLISH = "en", "English"
+    JAPANESE = "ja", "日本語"
+    CHINESE = "zh", "中文"
+
+preferred_language = models.CharField(
+    max_length=10,
+    choices=Language.choices,
+    default=Language.KOREAN,
+)

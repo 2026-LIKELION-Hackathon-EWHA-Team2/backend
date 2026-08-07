@@ -48,6 +48,7 @@ class UserSerializer(serializers.ModelSerializer):
             "privacy_agreed",
             "overseas_info_agreed",
             "marketing_agreed",
+            "preferred_language",
         )
         read_only_fields = ("id",)
 

@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 from datetime import timedelta
 
@@ -55,6 +56,13 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
     ),
 }
+
+
+OPENAI_TRANSLATION_MODEL = os.environ.get(
+    "OPENAI_TRANSLATION_MODEL",
+    "gpt-5.6-terra",
+)
+
 
 REST_USE_JWT = True
 

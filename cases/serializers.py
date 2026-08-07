@@ -270,6 +270,10 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    translated_content = serializers.SerializerMethodField()
+    translation_status = serializers.SerializerMethodField()
+    display_content = serializers.SerializerMethodField()
+
     content = serializers.CharField(
         max_length=4000,
         trim_whitespace=True,
@@ -282,14 +286,72 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
             "sender_hospital_id",
             "sender_hospital_name",
             "content",
+            "source_language",
+            "translated_content",
+            "translation_status",
+            "display_content",
             "created_at",
         )
         read_only_fields = (
             "id",
             "sender_hospital_id",
             "sender_hospital_name",
+            "source_language",
+            "translated_content",
+            "translation_status",
+            "display_content",
             "created_at",
         )
+
+    def get_selected_translation(self, obj):
+        request = self.context.get("request")
+
+        if request is None:
+            return None
+
+        if obj.sender_id == request.user.id:
+            return None
+
+        target_language = (
+            request.user.preferred_language
+        )
+
+        return next(
+            (
+                translation
+                for translation
+                in obj.translations.all()
+                if translation.target_language
+                == target_language
+            ),
+            None,
+        )
+
+    def get_translated_content(self, obj):
+        translation = self.get_selected_translation(obj)
+
+        if (
+            translation is not None
+            and translation.status == "COMPLETED"
+        ):
+            return translation.translated_content
+
+        return None
+
+    def get_translation_status(self, obj):
+        translation = self.get_selected_translation(obj)
+
+        if translation is None:
+            return None
+
+        return translation.status
+
+    def get_display_content(self, obj):
+        translated_content = (
+            self.get_translated_content(obj)
+        )
+
+        return translated_content or obj.content
 
     def validate_content(self, value):
         if not value:
