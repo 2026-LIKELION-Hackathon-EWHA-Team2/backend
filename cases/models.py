@@ -159,8 +159,8 @@ class CaseChatMessage(models.Model):
     )
 
     source_language = models.CharField(
-    max_length=10,
-    default="auto",
+        max_length=10,
+        default="auto",
     )
 
     content = models.TextField()

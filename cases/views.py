@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,7 +20,6 @@ from .models import (
 from .services import translate_medical_message
 
 
-from .models import CaseChatRoom, MedicalCase
 from .permissions import IsCaseChatParticipant, IsPatient
 from .serializers import (
     AdverseEffectUpdateSerializer,
@@ -231,114 +230,115 @@ class CaseChatMessageListCreateView(APIView):
         )
 
     def post(self, request, case_id, room_id):
-    chat_room = self.get_chat_room(
-        request,
-        case_id,
-        room_id,
-    )
-
-    serializer = CaseChatMessageSerializer(
-        data=request.data,
-    )
-    serializer.is_valid(raise_exception=True)
-
-    source_language = (
-        request.user.preferred_language
-    )
-
-    message = serializer.save(
-        chat_room=chat_room,
-        sender=request.user,
-        source_language=source_language,
-    )
-
-    if (
-        request.user.id
-        == chat_room.medical_case.origin_hospital_id
-    ):
-        recipient = chat_room.partner_hospital
-    else:
-        recipient = (
-            chat_room.medical_case.origin_hospital
+        chat_room = self.get_chat_room(
+            request,
+            case_id,
+            room_id,
         )
 
-    target_language = (
-        recipient.preferred_language
-    )
+        serializer = CaseChatMessageSerializer(
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
 
-    if source_language != target_language:
-        translation = (
-            CaseChatMessageTranslation.objects.create(
-                message=message,
-                target_language=target_language,
-                model_name=(
-                    settings.OPENAI_TRANSLATION_MODEL
-                ),
-                status=(
+        source_language = (
+            request.user.preferred_language
+        )
+
+        message = serializer.save(
+            chat_room=chat_room,
+            sender=request.user,
+            source_language=source_language,
+        )
+
+        if (
+            request.user.id
+            == chat_room.medical_case.origin_hospital_id
+        ):
+            recipient = chat_room.partner_hospital
+        else:
+            recipient = (
+                chat_room.medical_case.origin_hospital
+            )
+
+        target_language = (
+            recipient.preferred_language
+        )
+
+        if source_language != target_language:
+            translation = (
+                CaseChatMessageTranslation.objects.create(
+                    message=message,
+                    target_language=target_language,
+                    model_name=(
+                        settings.OPENAI_TRANSLATION_MODEL
+                    ),
+                    status=(
+                        CaseChatMessageTranslation
+                        .Status
+                        .PENDING
+                    ),
+                )
+            )
+
+            try:
+                translated_content = (
+                    translate_medical_message(
+                        text=message.content,
+                        source_language=source_language,
+                        target_language=target_language,
+                    )
+                )
+
+                translation.translated_content = (
+                    translated_content
+                )
+                translation.status = (
                     CaseChatMessageTranslation
                     .Status
-                    .PENDING
-                ),
-            )
+                    .COMPLETED
+                )
+                translation.save(
+                    update_fields=(
+                        "translated_content",
+                        "status",
+                        "updated_at",
+                    )
+                )
+
+            except Exception as exc:
+                logger.exception(
+                    "OpenAI message translation failed"
+                )
+
+                translation.status = (
+                    CaseChatMessageTranslation
+                    .Status
+                    .FAILED
+                )
+                translation.error_code = (
+                    exc.__class__.__name__
+                )
+                translation.save(
+                    update_fields=(
+                        "status",
+                        "error_code",
+                        "updated_at",
+                    )
+                )
+
+        message = (
+            message.__class__.objects
+            .select_related("sender")
+            .prefetch_related("translations")
+            .get(id=message.id)            
+        
         )
 
-        try:
-            translated_content = (
-                translate_medical_message(
-                    text=message.content,
-                    source_language=source_language,
-                    target_language=target_language,
-                )
-            )
-
-            translation.translated_content = (
-                translated_content
-            )
-            translation.status = (
-                CaseChatMessageTranslation
-                .Status
-                .COMPLETED
-            )
-            translation.save(
-                update_fields=(
-                    "translated_content",
-                    "status",
-                    "updated_at",
-                )
-            )
-
-        except Exception as exc:
-            logger.exception(
-                "OpenAI message translation failed"
-            )
-
-            translation.status = (
-                CaseChatMessageTranslation
-                .Status
-                .FAILED
-            )
-            translation.error_code = (
-                exc.__class__.__name__
-            )
-            translation.save(
-                update_fields=(
-                    "status",
-                    "error_code",
-                    "updated_at",
-                )
-            )
-
-    message = (
-        message.__class__.objects
-        .select_related("sender")
-        .prefetch_related("translations")
-        .get(id=message.id)
-    )
-
-    return Response(
-        CaseChatMessageSerializer(
-            message,
-            context={"request": request},
-        ).data,
-        status=status.HTTP_201_CREATED,
-    )
+        return Response(
+            CaseChatMessageSerializer(
+                message,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
