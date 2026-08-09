@@ -47,7 +47,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'accounts',
     "cases",
-    'selfsymptoms'
+    'selfsymptoms',
+    'matching',
 ]
 
 REST_FRAMEWORK = {

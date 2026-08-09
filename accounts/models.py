@@ -77,3 +77,128 @@ class PatientProfile(models.Model):
 
     def __str__(self):
         return self.user.name
+
+
+class HospitalProfile(models.Model):
+    hospital_id = models.BigAutoField(
+        primary_key=True,
+    )
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="hospital_profile",
+    )
+
+    country = models.CharField(
+        max_length=50,
+    )
+
+    city = models.CharField(
+        max_length=100,
+    )
+
+    address = models.CharField(
+        max_length=255,
+    )
+
+    hospital_type = models.CharField(
+        max_length=30,
+        null=True,
+        blank=True,
+    )
+
+    latitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=7,
+        null=True,
+        blank=True,
+    )
+
+    longitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=7,
+        null=True,
+        blank=True,
+    )
+
+    phone = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+    )
+
+    website = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+    )
+
+    description = models.TextField(
+        null=True,
+        blank=True,
+    )
+
+    business_hours = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+
+    image_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    def __str__(self):
+        return self.user.name
+
+
+class MedicalSpecialty(models.Model):
+    hospital_specialty_id = models.BigAutoField(
+        primary_key=True,
+    )
+
+    hospital = models.ForeignKey(
+        HospitalProfile,
+        on_delete=models.CASCADE,
+        related_name="specialties",
+    )
+
+    specialty_name = models.CharField(
+        max_length=100,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "hospital",
+                    "specialty_name",
+                ],
+                name="unique_hospital_specialty",
+            )
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.hospital.user.name} "
+            f"- {self.specialty_name}"
+        )
