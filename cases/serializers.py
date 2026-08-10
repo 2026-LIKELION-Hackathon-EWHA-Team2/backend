@@ -10,6 +10,7 @@ from .models import (
     CaseIngredient,
     CaseSyncRequest,
     CaseChatMessage,
+    CaseCollaborationRequest,
     MedicalCase,
 )
 
@@ -159,6 +160,74 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
             "status",
             "transferred_at",
         )
+
+
+class CaseCollaborationRequestSerializer(
+    serializers.ModelSerializer
+):
+    medical_case = MedicalCaseDetailSerializer(
+        read_only=True,
+    )
+
+    medical_case_id = serializers.IntegerField(
+        source="medical_case.id",
+        read_only=True,
+    )
+
+    origin_hospital_id = serializers.IntegerField(
+        source="medical_case.origin_hospital.id",
+        read_only=True,
+    )
+
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+
+    partner_hospital_id = serializers.IntegerField(
+        source="medical_case.partner_hospital.id",
+        read_only=True,
+    )
+
+    partner_hospital_name = serializers.CharField(
+        source="medical_case.partner_hospital.name",
+        read_only=True,
+    )
+
+    chat_room_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseCollaborationRequest
+
+        fields = (
+            "id",
+            "medical_case_id",
+            "medical_case",
+            "origin_hospital_id",
+            "origin_hospital_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "status",
+            "chat_room_id",
+            "requested_at",
+            "accepted_at",
+            "rejected_at",
+            "created_at",
+            "updated_at",
+        )
+
+        read_only_fields = fields
+
+    def get_chat_room_id(self, obj):
+        room = obj.medical_case.chat_rooms.filter(
+            partner_hospital_id=(
+                obj.medical_case.partner_hospital_id
+            ),
+        ).first()
+
+        return room.id if room else None
+
+
 
 
 class AdverseEffectUpdateSerializer(serializers.Serializer):

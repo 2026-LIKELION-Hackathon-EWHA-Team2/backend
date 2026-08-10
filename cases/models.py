@@ -116,6 +116,50 @@ class CaseAdverseEffect(models.Model):
             )
         ]
 
+class CaseCollaborationRequest(models.Model):
+    class Status(models.TextChoices):
+        REQUESTED = "REQUESTED", "협진 요청"
+        ACCEPTED = "ACCEPTED", "협진 수락"
+        REJECTED = "REJECTED", "협진 거절"
+        CANCELLED = "CANCELLED", "협진 취소"
+
+    medical_case = models.OneToOneField(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="collaboration_request",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+    )
+
+    requested_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    rejected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ("-requested_at",)
+
 
 class CaseChatRoom(models.Model):
     medical_case = models.ForeignKey(

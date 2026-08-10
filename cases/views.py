@@ -1,10 +1,12 @@
 from django.shortcuts import render
 
-# Create your views here.
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,16 +19,20 @@ from django.conf import settings
 from .models import (
     CaseChatMessageTranslation,
     CaseChatRoom,
+    CaseCollaborationRequest,
     CaseSyncRequest,
     MedicalCase,
 )
 from .services import translate_medical_message
 
 
-from .permissions import IsCaseChatParticipant, IsPatient
+
+
+from .permissions import IsCaseChatParticipant, IsPatient, IsHospital
 from .serializers import (
     AdverseEffectUpdateSerializer,
     CaseChatMessageSerializer,
+    CaseCollaborationRequestSerializer,
     CaseTransferSerializer,
     MedicalCaseCreateSerializer,
     MedicalCaseDetailSerializer,
@@ -162,12 +168,14 @@ class AdverseEffectUpdateView(APIView):
         )
 
 
+
 class CaseTransferView(APIView):
     permission_classes = [IsPatient]
 
+    @transaction.atomic
     def post(self, request, case_id):
         medical_case = get_object_or_404(
-            MedicalCase,
+            MedicalCase.objects.select_for_update(),
             id=case_id,
             patient=request.user,
         )
@@ -179,12 +187,48 @@ class CaseTransferView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        return Response(
+        collaboration_request, request_created = (
+            CaseCollaborationRequest.objects.get_or_create(
+                medical_case=medical_case,
+                defaults={
+                    "status": (
+                        CaseCollaborationRequest.Status.REQUESTED
+                    ),
+                },
+            )
+        )
+
+        CaseSyncRequest.objects.filter(
+            medical_case=medical_case,
+        ).update(
+            status=CaseSyncRequest.Status.SENT_TO_PARTNER,
+            updated_at=timezone.now(),
+        )
+
+        response_data = dict(
             MedicalCaseDetailSerializer(
-                medical_case
+                medical_case,
             ).data
         )
 
+        response_data.update(
+            {
+                "collaboration_request_id": (
+                    collaboration_request.id
+                ),
+                "collaboration_request_status": (
+                    collaboration_request.status
+                ),
+                "collaboration_request_created": (
+                    request_created
+                ),
+            }
+        )
+
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK,
+        )
 
 class CaseChatMessageListCreateView(APIView):
     permission_classes = [
@@ -489,4 +533,177 @@ class CaseSyncRequestReviewView(APIView):
                 ),
             },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class CaseCollaborationRequestListView(
+    generics.ListAPIView
+):
+    permission_classes = [IsHospital]
+    serializer_class = (
+        CaseCollaborationRequestSerializer
+    )
+
+    def get_queryset(self):
+        return (
+            CaseCollaborationRequest.objects
+            .filter(
+                medical_case__partner_hospital=(
+                    self.request.user
+                ),
+            )
+            .select_related(
+                "medical_case",
+                "medical_case__patient",
+                "medical_case__origin_hospital",
+                "medical_case__partner_hospital",
+            )
+            .prefetch_related(
+                "medical_case__ingredients",
+                "medical_case__adverse_effects",
+                "medical_case__chat_rooms",
+            )
+        )
+
+
+class CaseCollaborationRequestAcceptView(APIView):
+    permission_classes = [IsHospital]
+
+    @transaction.atomic
+    def post(self, request, collaboration_request_id):
+        collaboration_request = get_object_or_404(
+            CaseCollaborationRequest.objects
+            .select_for_update()
+            .select_related(
+                "medical_case",
+                "medical_case__origin_hospital",
+                "medical_case__partner_hospital",
+            ),
+            id=collaboration_request_id,
+        )
+
+        medical_case = (
+            collaboration_request.medical_case
+        )
+
+        if (
+            medical_case.partner_hospital_id
+            != request.user.id
+        ):
+            raise PermissionDenied(
+                "해당 협진 요청을 수락할 권한이 없습니다."
+            )
+
+        if (
+            medical_case.status
+            != MedicalCase.Status.TRANSFERRED
+        ):
+            raise ValidationError(
+                {
+                    "detail": (
+                        "환자의 의료정보 전송 동의가 "
+                        "완료되지 않은 케이스입니다."
+                    )
+                }
+            )
+
+        # 같은 요청을 다시 보낸 경우 기존 채팅방 반환
+        if (
+            collaboration_request.status
+            == CaseCollaborationRequest.Status.ACCEPTED
+        ):
+            chat_room = CaseChatRoom.objects.filter(
+                medical_case=medical_case,
+                partner_hospital=request.user,
+            ).first()
+
+            if chat_room is None:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            "수락된 요청이지만 채팅방이 "
+                            "존재하지 않습니다."
+                        )
+                    }
+                )
+
+            return Response(
+                {
+                    "collaboration_request": (
+                        CaseCollaborationRequestSerializer(
+                            collaboration_request,
+                            context={"request": request},
+                        ).data
+                    ),
+                    "chat_room_id": chat_room.id,
+                    "chat_room_created": False,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if (
+            collaboration_request.status
+            != CaseCollaborationRequest.Status.REQUESTED
+        ):
+            raise ValidationError(
+                {
+                    "detail": (
+                        "현재 상태에서는 협진 요청을 "
+                        "수락할 수 없습니다."
+                    )
+                }
+            )
+
+        # 협진 수락 트랜잭션 안에서 채팅방 생성
+        chat_room, chat_room_created = (
+            CaseChatRoom.objects.get_or_create(
+                medical_case=medical_case,
+                partner_hospital=request.user,
+                defaults={
+                    "is_active": True,
+                },
+            )
+        )
+
+        if not chat_room.is_active:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "해당 케이스의 채팅방이 "
+                        "비활성화된 상태입니다."
+                    )
+                }
+            )
+
+        collaboration_request.status = (
+            CaseCollaborationRequest.Status.ACCEPTED
+        )
+        collaboration_request.accepted_at = timezone.now()
+        collaboration_request.save(
+            update_fields=[
+                "status",
+                "accepted_at",
+                "updated_at",
+            ]
+        )
+
+        CaseSyncRequest.objects.filter(
+            medical_case=medical_case,
+        ).update(
+            status=CaseSyncRequest.Status.COMPLETED,
+            updated_at=timezone.now(),
+        )
+
+        return Response(
+            {
+                "collaboration_request": (
+                    CaseCollaborationRequestSerializer(
+                        collaboration_request,
+                        context={"request": request},
+                    ).data
+                ),
+                "chat_room_id": chat_room.id,
+                "chat_room_created": chat_room_created,
+            },
+            status=status.HTTP_200_OK,
         )

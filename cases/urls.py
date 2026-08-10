@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     AdverseEffectUpdateView,
     CaseChatMessageListCreateView,
+    CaseCollaborationRequestAcceptView,
+    CaseCollaborationRequestListView,
     CaseTransferView,
     MedicalCaseDetailView,
     MedicalCaseListCreateView,
@@ -46,5 +48,15 @@ urlpatterns = [
         "sync-requests/<int:sync_request_id>/review/",
         CaseSyncRequestReviewView.as_view(),
         name="case-sync-request-review",
+    ),
+    path(
+    "collaboration-requests/",
+    CaseCollaborationRequestListView.as_view(),
+    name="collaboration-request-list",
+    ),
+    path(
+        "collaboration-requests/<int:collaboration_request_id>/accept/",
+        CaseCollaborationRequestAcceptView.as_view(),
+        name="collaboration-request-accept",
     ),
 ]
