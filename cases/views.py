@@ -33,6 +33,7 @@ from .serializers import (
     AdverseEffectUpdateSerializer,
     CaseChatMessageSerializer,
     CaseCollaborationRequestSerializer,
+    CaseCollaborationRequestDetailSerializer,
     CaseTransferSerializer,
     MedicalCaseCreateSerializer,
     MedicalCaseDetailSerializer,
@@ -41,6 +42,41 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+def get_collaboration_requests_for_user(user):
+    return (
+        CaseCollaborationRequest.objects
+        .filter(
+            Q(
+                medical_case__origin_hospital=user,
+            )
+            | Q(
+                medical_case__partner_hospital=user,
+            )
+        )
+        .select_related(
+            "medical_case",
+            "medical_case__patient",
+            "medical_case__origin_hospital",
+            "medical_case__partner_hospital",
+            "medical_case__sync_request",
+            "medical_case__sync_request__patient",
+            "medical_case__sync_request__origin_hospital",
+            "medical_case__sync_request__partner_hospital",
+            "medical_case__sync_request__symptom_case",
+            "medical_case__sync_request__symptom_case__patient",
+            "medical_case__sync_request__symptom_case__patient__user",
+        )
+        .prefetch_related(
+            "medical_case__ingredients",
+            "medical_case__adverse_effects",
+            "medical_case__chat_rooms",
+            "medical_case__sync_request__symptom_case__images",
+            "medical_case__sync_request__symptom_case__areas",
+            "medical_case__sync_request__symptom_case__symptom_types",
+        )
+        .order_by("-requested_at")
+    )
 
 
 
@@ -544,26 +580,56 @@ class CaseCollaborationRequestListView(
         CaseCollaborationRequestSerializer
     )
 
+    ALLOWED_STATUSES = {
+        CaseCollaborationRequest.Status.REQUESTED,
+        CaseCollaborationRequest.Status.ACCEPTED,
+    }
+
     def get_queryset(self):
-        return (
-            CaseCollaborationRequest.objects
-            .filter(
-                medical_case__partner_hospital=(
-                    self.request.user
-                ),
-            )
-            .select_related(
-                "medical_case",
-                "medical_case__patient",
-                "medical_case__origin_hospital",
-                "medical_case__partner_hospital",
-            )
-            .prefetch_related(
-                "medical_case__ingredients",
-                "medical_case__adverse_effects",
-                "medical_case__chat_rooms",
-            )
+        queryset = get_collaboration_requests_for_user(
+            self.request.user,
         )
+
+        status_value = (
+            self.request.query_params.get("status")
+        )
+
+        if status_value is None:
+            return queryset
+
+        status_value = status_value.upper()
+
+        if status_value not in self.ALLOWED_STATUSES:
+            raise ValidationError(
+                {
+                    "status": (
+                        "현재 조회 가능한 상태는 "
+                        "REQUESTED 또는 ACCEPTED입니다."
+                    )
+                }
+            )
+
+        return queryset.filter(
+            status=status_value,
+        )
+
+
+class CaseCollaborationRequestDetailView(
+    generics.RetrieveAPIView
+):
+    permission_classes = [IsHospital]
+    serializer_class = (
+        CaseCollaborationRequestDetailSerializer
+    )
+    lookup_url_kwarg = (
+        "collaboration_request_id"
+    )
+
+    def get_queryset(self):
+        return get_collaboration_requests_for_user(
+            self.request.user,
+        )
+
 
 
 class CaseCollaborationRequestAcceptView(APIView):

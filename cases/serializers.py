@@ -586,3 +586,36 @@ class CaseSyncRequestDetailSerializer(
             "created_at",
             "updated_at",
         )
+
+
+class CaseCollaborationRequestDetailSerializer(
+    CaseCollaborationRequestSerializer
+):
+    sync_request = serializers.SerializerMethodField()
+
+    class Meta(
+        CaseCollaborationRequestSerializer.Meta
+    ):
+        fields = (
+            CaseCollaborationRequestSerializer
+            .Meta
+            .fields
+            + (
+                "sync_request",
+            )
+        )
+
+        read_only_fields = fields
+
+    def get_sync_request(self, obj):
+        try:
+            sync_request = (
+                obj.medical_case.sync_request
+            )
+        except CaseSyncRequest.DoesNotExist:
+            return None
+
+        return CaseSyncRequestDetailSerializer(
+            sync_request,
+            context=self.context,
+        ).data
