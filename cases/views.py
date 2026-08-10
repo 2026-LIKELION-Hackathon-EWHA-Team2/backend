@@ -9,12 +9,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import logging
+from django.db import transaction
+from django.utils import timezone
 
 from django.conf import settings
 
 from .models import (
     CaseChatMessageTranslation,
     CaseChatRoom,
+    CaseSyncRequest,
     MedicalCase,
 )
 from .services import translate_medical_message
@@ -27,6 +30,8 @@ from .serializers import (
     CaseTransferSerializer,
     MedicalCaseCreateSerializer,
     MedicalCaseDetailSerializer,
+    CaseSyncRequestCreateSerializer,
+    CaseSyncRequestDetailSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -340,5 +345,148 @@ class CaseChatMessageListCreateView(APIView):
                 message,
                 context={"request": request},
             ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CaseSyncRequestListCreateView(
+    generics.ListCreateAPIView
+):
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return CaseSyncRequestCreateSerializer
+
+        return CaseSyncRequestDetailSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        queryset = (
+            CaseSyncRequest.objects
+            .select_related(
+                "patient",
+                "symptom_case",
+                "symptom_case__patient",
+                "symptom_case__patient__user",
+                "origin_hospital",
+                "partner_hospital",
+                "medical_case",
+            )
+            .prefetch_related(
+                "symptom_case__images",
+                "symptom_case__areas",
+                "symptom_case__symptom_types",
+            )
+            .order_by("-created_at")
+        )
+
+        if user.user_type == "PATIENT":
+            return queryset.filter(
+                patient=user,
+            )
+
+        if user.user_type == "HOSPITAL":
+            return queryset.filter(
+                origin_hospital=user,
+            )
+
+        return queryset.none()
+
+    def perform_create(self, serializer):
+        serializer.save(
+            patient=self.request.user,
+        )
+
+
+class CaseSyncRequestReviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, sync_request_id):
+        sync_request = get_object_or_404(
+            CaseSyncRequest.objects
+            .select_for_update()
+            .select_related(
+                "patient",
+                "symptom_case",
+                "origin_hospital",
+                "partner_hospital",
+            ),
+            id=sync_request_id,
+        )
+
+        if request.user.user_type != "HOSPITAL":
+            raise PermissionDenied(
+                "병원 회원만 검토할 수 있습니다."
+            )
+
+        if request.user != sync_request.origin_hospital:
+            raise PermissionDenied(
+                "해당 시술 병원만 검토할 수 있습니다."
+            )
+
+        if (
+            sync_request.status
+            != CaseSyncRequest.Status.REQUESTED
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "이미 검토됐거나 "
+                        "처리할 수 없는 요청입니다."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        case_data = {
+            **request.data,
+            "patient_id": sync_request.patient_id,
+            "partner_hospital_id": (
+                sync_request.partner_hospital_id
+            ),
+        }
+
+        case_serializer = MedicalCaseCreateSerializer(
+            data=case_data,
+            context={"request": request},
+        )
+        case_serializer.is_valid(raise_exception=True)
+
+        medical_case = case_serializer.save(
+            origin_hospital=request.user,
+        )
+
+        sync_request.medical_case = medical_case
+        sync_request.status = (
+            CaseSyncRequest.Status.HOSPITAL_REVIEWED
+        )
+        sync_request.reviewed_at = timezone.now()
+
+        sync_request.save(
+            update_fields=[
+                "medical_case",
+                "status",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            {
+                "sync_request": (
+                    CaseSyncRequestDetailSerializer(
+                        sync_request,
+                        context={"request": request},
+                    ).data
+                ),
+                "medical_case": (
+                    MedicalCaseDetailSerializer(
+                        medical_case
+                    ).data
+                ),
+            },
             status=status.HTTP_201_CREATED,
         )

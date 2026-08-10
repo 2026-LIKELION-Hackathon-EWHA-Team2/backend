@@ -6,6 +6,8 @@ from .views import (
     CaseTransferView,
     MedicalCaseDetailView,
     MedicalCaseListCreateView,
+    CaseSyncRequestListCreateView,
+    CaseSyncRequestReviewView,
 )
 
 
@@ -34,5 +36,15 @@ urlpatterns = [
     "<int:case_id>/chat/rooms/<int:room_id>/messages/",
     CaseChatMessageListCreateView.as_view(),
     name="case-chat-message-list-create",
+    ),
+    path(
+    "sync-requests/",
+    CaseSyncRequestListCreateView.as_view(),
+    name="case-sync-request-list-create",
+    ),
+    path(
+        "sync-requests/<int:sync_request_id>/review/",
+        CaseSyncRequestReviewView.as_view(),
+        name="case-sync-request-review",
     ),
 ]

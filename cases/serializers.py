@@ -1,12 +1,15 @@
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
+from selfsymptoms.models import PatientSymptomCase
+from selfsymptoms.serializers import PatientSymptomCaseSerializer
 
 from accounts.models import User
 from .models import (
     CaseAdverseEffect,
-    CaseChatMessage,
     CaseIngredient,
+    CaseSyncRequest,
+    CaseChatMessage,
     MedicalCase,
 )
 
@@ -360,3 +363,157 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class CaseSyncRequestCreateSerializer(
+    serializers.ModelSerializer
+):
+    symptom_case_id = serializers.PrimaryKeyRelatedField(
+        source="symptom_case",
+        queryset=PatientSymptomCase.objects.all(),
+    )
+
+    origin_hospital_id = (
+        serializers.PrimaryKeyRelatedField(
+            source="origin_hospital",
+            queryset=User.objects.filter(
+                user_type=User.UserType.HOSPITAL,
+            ),
+        )
+    )
+
+    partner_hospital_id = (
+        serializers.PrimaryKeyRelatedField(
+            source="partner_hospital",
+            queryset=User.objects.filter(
+                user_type=User.UserType.HOSPITAL,
+            ),
+        )
+    )
+
+    class Meta:
+        model = CaseSyncRequest
+        fields = (
+            "id",
+            "patient_name",
+            "patient_gender",
+            "patient_birth_date",
+            "symptom_case_id",
+            "origin_hospital_id",
+            "partner_hospital_id",
+            "selection_source",
+        )
+        read_only_fields = ("id",)
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        symptom_case = attrs["symptom_case"]
+        origin_hospital = attrs["origin_hospital"]
+        partner_hospital = attrs["partner_hospital"]
+
+        if request.user.user_type != User.UserType.PATIENT:
+            raise serializers.ValidationError(
+                "환자만 동기화를 요청할 수 있습니다."
+            )
+
+        if (
+            symptom_case.patient.user_id
+            != request.user.id
+        ):
+            raise serializers.ValidationError(
+                {
+                    "symptom_case_id": (
+                        "본인의 증상 케이스만 "
+                        "선택할 수 있습니다."
+                    )
+                }
+            )
+
+        if origin_hospital == partner_hospital:
+            raise serializers.ValidationError(
+                {
+                    "partner_hospital_id": (
+                        "시술 병원과 상대 병원은 "
+                        "달라야 합니다."
+                    )
+                }
+            )
+
+        duplicate_exists = (
+            CaseSyncRequest.objects.filter(
+                patient=request.user,
+                symptom_case=symptom_case,
+                status__in=[
+                    CaseSyncRequest.Status.REQUESTED,
+                    CaseSyncRequest.Status.HOSPITAL_REVIEWED,
+                    CaseSyncRequest.Status.PATIENT_CONSENTED,
+                    CaseSyncRequest.Status.SENT_TO_PARTNER,
+                ],
+            ).exists()
+        )
+
+        if duplicate_exists:
+            raise serializers.ValidationError(
+                "해당 증상에 대해 진행 중인 요청이 있습니다."
+            )
+
+        return attrs
+
+
+class CaseSyncRequestDetailSerializer(
+    serializers.ModelSerializer
+):
+    patient_id = serializers.IntegerField(
+        source="patient.id",
+        read_only=True,
+    )
+
+    symptom_case = PatientSymptomCaseSerializer(
+        read_only=True,
+    )
+
+    origin_hospital_id = serializers.IntegerField(
+        source="origin_hospital.id",
+        read_only=True,
+    )
+
+    origin_hospital_name = serializers.CharField(
+        source="origin_hospital.name",
+        read_only=True,
+    )
+
+    partner_hospital_id = serializers.IntegerField(
+        source="partner_hospital.id",
+        read_only=True,
+    )
+
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+
+    medical_case_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = CaseSyncRequest
+        fields = (
+            "id",
+            "patient_id",
+            "patient_name",
+            "patient_gender",
+            "patient_birth_date",
+            "symptom_case",
+            "origin_hospital_id",
+            "origin_hospital_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "medical_case_id",
+            "selection_source",
+            "status",
+            "reviewed_at",
+            "created_at",
+            "updated_at",
+        )

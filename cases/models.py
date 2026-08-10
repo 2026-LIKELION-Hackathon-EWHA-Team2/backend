@@ -233,3 +233,117 @@ class CaseChatMessageTranslation(models.Model):
                 name="unique_message_target_language",
             ),
         ]
+
+
+
+class CaseSyncRequest(models.Model):
+    class Status(models.TextChoices):
+        REQUESTED = (
+            "REQUESTED",
+            "시술 병원 검토 대기",
+        )
+        HOSPITAL_REVIEWED = (
+            "HOSPITAL_REVIEWED",
+            "시술 병원 검토 완료",
+        )
+        PATIENT_CONSENTED = (
+            "PATIENT_CONSENTED",
+            "환자 전송 동의 완료",
+        )
+        SENT_TO_PARTNER = (
+            "SENT_TO_PARTNER",
+            "상대 병원 전송 완료",
+        )
+        COMPLETED = (
+            "COMPLETED",
+            "협진 수락 완료",
+        )
+        CANCELLED = (
+            "CANCELLED",
+            "취소",
+        )
+
+    class Gender(models.TextChoices):
+        FEMALE = "FEMALE", "여성"
+        MALE = "MALE", "남성"
+        OTHER = "OTHER", "기타"
+
+    class SelectionSource(models.TextChoices):
+        AI_RECOMMENDATION = (
+            "AI_RECOMMENDATION",
+            "AI 추천",
+        )
+        NETWORK = (
+            "NETWORK",
+            "네트워크 병원 목록",
+        )
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="case_sync_requests",
+    )
+
+    patient_name = models.CharField(
+        max_length=100,
+    )
+
+    patient_gender = models.CharField(
+        max_length=20,
+        choices=Gender.choices,
+    )
+
+    patient_birth_date = models.DateField()
+
+    symptom_case = models.ForeignKey(
+        "selfsymptoms.PatientSymptomCase",
+        on_delete=models.PROTECT,
+        related_name="sync_requests",
+    )
+
+    # 실제 시술을 진행한 병원
+    origin_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="received_case_sync_requests",
+    )
+
+    # AI 추천 또는 네트워크 목록에서 선택한 상대 병원
+    partner_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="selected_case_sync_requests",
+    )
+
+    # 시술 병원이 검토 후 생성한 케이스
+    medical_case = models.OneToOneField(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="sync_request",
+        null=True,
+        blank=True,
+    )
+
+    selection_source = models.CharField(
+        max_length=30,
+        choices=SelectionSource.choices,
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
