@@ -4,6 +4,7 @@ from .views import (
     AdverseEffectUpdateView,
     CaseChatMessageListCreateView,
     CaseCollaborationRequestAcceptView,
+    CaseCollaborationRequestDetailView,
     CaseCollaborationRequestListView,
     CaseTransferView,
     MedicalCaseDetailView,
@@ -58,5 +59,10 @@ urlpatterns = [
         "collaboration-requests/<int:collaboration_request_id>/accept/",
         CaseCollaborationRequestAcceptView.as_view(),
         name="collaboration-request-accept",
+    ),
+    path(
+        "collaboration-requests/<int:collaboration_request_id>/",
+        CaseCollaborationRequestDetailView.as_view(),
+        name="collaboration-request-detail",
     ),
 ]
