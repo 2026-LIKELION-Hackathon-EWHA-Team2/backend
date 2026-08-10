@@ -115,3 +115,121 @@ class CaseAdverseEffect(models.Model):
                 name="unique_case_adverse_effect",
             )
         ]
+
+
+class CaseChatRoom(models.Model):
+    medical_case = models.ForeignKey(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="chat_rooms",
+    )
+
+    partner_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="partner_chat_rooms",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "medical_case",
+                    "partner_hospital",
+                ),
+                name="unique_case_partner_chat_room",
+            ),
+        ]
+
+
+class CaseChatMessage(models.Model):
+    chat_room = models.ForeignKey(
+        CaseChatRoom,
+        on_delete=models.PROTECT,
+        related_name="messages",
+    )
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sent_case_chat_messages",
+    )
+
+    source_language = models.CharField(
+        max_length=10,
+        default="auto",
+    )
+
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+        indexes = [
+            models.Index(
+                fields=("chat_room", "id"),
+                name="chat_room_message_idx",
+            ),
+        ]
+
+
+class CaseChatMessageTranslation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "번역 중"
+        COMPLETED = "COMPLETED", "번역 완료"
+        FAILED = "FAILED", "번역 실패"
+
+    message = models.ForeignKey(
+        CaseChatMessage,
+        on_delete=models.PROTECT,
+        related_name="translations",
+    )
+
+    target_language = models.CharField(
+        max_length=10,
+    )
+
+    translated_content = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    model_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    error_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "message",
+                    "target_language",
+                ),
+                name="unique_message_target_language",
+            ),
+        ]
