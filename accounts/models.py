@@ -7,11 +7,23 @@ class User(AbstractUser):
         PATIENT = "PATIENT", "환자"
         HOSPITAL = "HOSPITAL", "병원"
 
+    class Language(models.TextChoices):
+        KOREAN = "ko", "한국어"
+        ENGLISH = "en", "English"
+        JAPANESE = "ja", "日本語"
+        CHINESE = "zh", "中文"
+
     name = models.CharField(max_length=100)
 
     user_type = models.CharField(
         max_length=20,
         choices=UserType.choices,
+    )
+
+    preferred_language = models.CharField(
+        max_length=10,
+        choices=Language.choices,
+        default=Language.KOREAN,
     )
 
     # 필수 동의
@@ -202,3 +214,4 @@ class MedicalSpecialty(models.Model):
             f"{self.hospital.user.name} "
             f"- {self.specialty_name}"
         )
+

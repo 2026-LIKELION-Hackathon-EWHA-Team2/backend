@@ -115,3 +115,279 @@ class CaseAdverseEffect(models.Model):
                 name="unique_case_adverse_effect",
             )
         ]
+
+class CaseCollaborationRequest(models.Model):
+    class Status(models.TextChoices):
+        REQUESTED = "REQUESTED", "협진 요청"
+        ACCEPTED = "ACCEPTED", "협진 수락"
+        REJECTED = "REJECTED", "협진 거절"
+        CANCELLED = "CANCELLED", "협진 취소"
+
+    medical_case = models.OneToOneField(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="collaboration_request",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+    )
+
+    requested_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    rejected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ("-requested_at",)
+
+
+class CaseChatRoom(models.Model):
+    medical_case = models.ForeignKey(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="chat_rooms",
+    )
+
+    partner_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="partner_chat_rooms",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "medical_case",
+                    "partner_hospital",
+                ),
+                name="unique_case_partner_chat_room",
+            ),
+        ]
+
+
+class CaseChatMessage(models.Model):
+    chat_room = models.ForeignKey(
+        CaseChatRoom,
+        on_delete=models.PROTECT,
+        related_name="messages",
+    )
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sent_case_chat_messages",
+    )
+
+    source_language = models.CharField(
+        max_length=10,
+        default="auto",
+    )
+
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("id",)
+        indexes = [
+            models.Index(
+                fields=("chat_room", "id"),
+                name="chat_room_message_idx",
+            ),
+        ]
+
+
+class CaseChatMessageTranslation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "번역 중"
+        COMPLETED = "COMPLETED", "번역 완료"
+        FAILED = "FAILED", "번역 실패"
+
+    message = models.ForeignKey(
+        CaseChatMessage,
+        on_delete=models.PROTECT,
+        related_name="translations",
+    )
+
+    target_language = models.CharField(
+        max_length=10,
+    )
+
+    translated_content = models.TextField(
+        blank=True,
+        default="",
+    )
+
+    model_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    error_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=(
+                    "message",
+                    "target_language",
+                ),
+                name="unique_message_target_language",
+            ),
+        ]
+
+
+
+class CaseSyncRequest(models.Model):
+    class Status(models.TextChoices):
+        REQUESTED = (
+            "REQUESTED",
+            "시술 병원 검토 대기",
+        )
+        HOSPITAL_REVIEWED = (
+            "HOSPITAL_REVIEWED",
+            "시술 병원 검토 완료",
+        )
+        PATIENT_CONSENTED = (
+            "PATIENT_CONSENTED",
+            "환자 전송 동의 완료",
+        )
+        SENT_TO_PARTNER = (
+            "SENT_TO_PARTNER",
+            "상대 병원 전송 완료",
+        )
+        COMPLETED = (
+            "COMPLETED",
+            "협진 수락 완료",
+        )
+        CANCELLED = (
+            "CANCELLED",
+            "취소",
+        )
+
+    class Gender(models.TextChoices):
+        FEMALE = "FEMALE", "여성"
+        MALE = "MALE", "남성"
+        OTHER = "OTHER", "기타"
+
+    class SelectionSource(models.TextChoices):
+        AI_RECOMMENDATION = (
+            "AI_RECOMMENDATION",
+            "AI 추천",
+        )
+        NETWORK = (
+            "NETWORK",
+            "네트워크 병원 목록",
+        )
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="case_sync_requests",
+    )
+
+    patient_name = models.CharField(
+        max_length=100,
+    )
+
+    patient_gender = models.CharField(
+        max_length=20,
+        choices=Gender.choices,
+    )
+
+    patient_birth_date = models.DateField()
+
+    symptom_case = models.ForeignKey(
+        "selfsymptoms.PatientSymptomCase",
+        on_delete=models.PROTECT,
+        related_name="sync_requests",
+    )
+
+    # 실제 시술을 진행한 병원
+    origin_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="received_case_sync_requests",
+    )
+
+    # AI 추천 또는 네트워크 목록에서 선택한 상대 병원
+    partner_hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="selected_case_sync_requests",
+    )
+
+    # 시술 병원이 검토 후 생성한 케이스
+    medical_case = models.OneToOneField(
+        MedicalCase,
+        on_delete=models.PROTECT,
+        related_name="sync_request",
+        null=True,
+        blank=True,
+    )
+
+    selection_source = models.CharField(
+        max_length=30,
+        choices=SelectionSource.choices,
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.REQUESTED,
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )

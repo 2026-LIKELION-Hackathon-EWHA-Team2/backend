@@ -2,9 +2,14 @@ from django.urls import path
 
 from .views import (
     AdverseEffectUpdateView,
+    CaseChatMessageListCreateView,
+    CaseCollaborationRequestAcceptView,
+    CaseCollaborationRequestListView,
     CaseTransferView,
     MedicalCaseDetailView,
     MedicalCaseListCreateView,
+    CaseSyncRequestListCreateView,
+    CaseSyncRequestReviewView,
 )
 
 
@@ -28,5 +33,30 @@ urlpatterns = [
         "<int:case_id>/transfer/",
         CaseTransferView.as_view(),
         name="case-transfer",
+    ),
+    path(
+    "<int:case_id>/chat/rooms/<int:room_id>/messages/",
+    CaseChatMessageListCreateView.as_view(),
+    name="case-chat-message-list-create",
+    ),
+    path(
+    "sync-requests/",
+    CaseSyncRequestListCreateView.as_view(),
+    name="case-sync-request-list-create",
+    ),
+    path(
+        "sync-requests/<int:sync_request_id>/review/",
+        CaseSyncRequestReviewView.as_view(),
+        name="case-sync-request-review",
+    ),
+    path(
+    "collaboration-requests/",
+    CaseCollaborationRequestListView.as_view(),
+    name="collaboration-request-list",
+    ),
+    path(
+        "collaboration-requests/<int:collaboration_request_id>/accept/",
+        CaseCollaborationRequestAcceptView.as_view(),
+        name="collaboration-request-accept",
     ),
 ]
