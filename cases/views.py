@@ -26,8 +26,10 @@ from .models import (
     CaseSyncRequest,
     MedicalCase,
 )
-from .services import translate_medical_message
-
+from .services import (
+    generate_case_agreement,
+    translate_medical_message,
+)
 
 
 
@@ -1093,4 +1095,103 @@ class CaseAgreementRevisionListView(APIView):
                 "current_version": agreement.version,
                 "revisions": serializer.data,
             }
+        )
+
+class CaseAgreementGenerateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        if CaseAgreement.objects.filter(
+            chat_room=chat_room,
+        ).exists():
+            raise ValidationError(
+                "이미 생성된 협진 합의안이 있습니다."
+            )
+
+        messages = list(
+            chat_room.messages
+            .select_related("sender")
+            .order_by("id")
+        )
+
+        if not messages:
+            raise ValidationError(
+                "합의안을 생성할 채팅 메시지가 없습니다."
+            )
+
+        medical_case = chat_room.medical_case
+
+        case_data = {
+            "procedure_name": medical_case.procedure_name,
+            "procedure_area": medical_case.procedure_area,
+            "procedure_date": (
+                medical_case.procedure_date.isoformat()
+            ),
+            "ingredients": list(
+                medical_case.ingredients.values_list(
+                    "ingredient_name",
+                    flat=True,
+                )
+            ),
+            "adverse_effects": list(
+                medical_case.adverse_effects.values_list(
+                    "effect_type",
+                    flat=True,
+                )
+            ),
+            "clinician_note": medical_case.clinician_note,
+        }
+
+        try:
+            generated_data = generate_case_agreement(
+                case_data=case_data,
+                messages=messages,
+            )
+        except Exception:
+            logger.exception(
+                "OpenAI agreement generation failed"
+            )
+            raise ValidationError(
+                "AI 합의안 초안을 생성하지 못했습니다."
+            )
+
+        serializer = CaseAgreementSerializer(
+            data=generated_data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        # AI 호출 중 다른 요청이 합의안을 만들었는지 재확인합니다.
+        with transaction.atomic():
+            locked_room = (
+                CaseChatRoom.objects
+                .select_for_update()
+                .get(id=chat_room.id)
+            )
+
+            if CaseAgreement.objects.filter(
+                chat_room=locked_room,
+            ).exists():
+                raise ValidationError(
+                    "이미 생성된 협진 합의안이 있습니다."
+                )
+
+            agreement = serializer.save(
+                chat_room=locked_room,
+                status=CaseAgreement.Status.AI_DRAFT,
+                version=1,
+            )
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
         )
