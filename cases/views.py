@@ -17,6 +17,9 @@ from django.utils import timezone
 from django.conf import settings
 
 from .models import (
+    CaseAgreement,
+    CaseAgreementReview,
+    CaseAgreementRevision,
     CaseChatMessageTranslation,
     CaseChatRoom,
     CaseCollaborationRequest,
@@ -30,6 +33,8 @@ from .services import translate_medical_message
 
 from .permissions import IsCaseChatParticipant, IsPatient, IsHospital
 from .serializers import (
+    CaseAgreementSerializer,
+    CaseAgreementRevisionSerializer,
     AdverseEffectUpdateSerializer,
     CaseChatMessageSerializer,
     CaseCollaborationRequestSerializer,
@@ -77,6 +82,32 @@ def get_collaboration_requests_for_user(user):
         )
         .order_by("-requested_at")
     )
+
+def get_agreement_chat_room(request, case_id, room_id):
+    if request.user.user_type != "HOSPITAL":
+        raise PermissionDenied("병원 회원만 이용할 수 있습니다.")
+
+    chat_room = get_object_or_404(
+        CaseChatRoom.objects.select_related(
+            "medical_case",
+            "medical_case__origin_hospital",
+            "partner_hospital",
+        ),
+        id=room_id,
+        medical_case_id=case_id,
+    )
+
+    participant_ids = {
+        chat_room.medical_case.origin_hospital_id,
+        chat_room.partner_hospital_id,
+    }
+
+    if request.user.id not in participant_ids:
+        raise PermissionDenied(
+            "해당 협진 합의에 접근할 권한이 없습니다."
+        )
+
+    return chat_room
 
 
 
@@ -772,4 +803,294 @@ class CaseCollaborationRequestAcceptView(APIView):
                 "chat_room_created": chat_room_created,
             },
             status=status.HTTP_200_OK,
+        )
+
+class CaseAgreementDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        agreement = get_object_or_404(
+            CaseAgreement.objects
+            .select_related("edited_by", "chat_room")
+            .prefetch_related(
+                "reviews__hospital",
+                "revisions",
+            ),
+            chat_room=chat_room,
+        )
+
+        serializer = CaseAgreementSerializer(
+            agreement,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    def post(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        if CaseAgreement.objects.filter(
+            chat_room=chat_room
+        ).exists():
+            raise ValidationError(
+                "이미 생성된 협진 합의안이 있습니다."
+            )
+
+        serializer = CaseAgreementSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        agreement = serializer.save(
+            chat_room=chat_room,
+            status=CaseAgreement.Status.AI_DRAFT,
+        )
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def patch(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        with transaction.atomic():
+            agreement = get_object_or_404(
+                CaseAgreement.objects.select_for_update(),
+                chat_room=chat_room,
+            )
+
+            if agreement.status == CaseAgreement.Status.FINAL:
+                raise ValidationError(
+                    "최종 합의 내용은 수정 요청 후 변경할 수 있습니다."
+                )
+
+            serializer = CaseAgreementSerializer(
+                agreement,
+                data=request.data,
+                partial=True,
+                context={"request": request},
+            )
+            serializer.is_valid(raise_exception=True)
+
+            editable_fields = (
+                "judgment_draft",
+                "evidence_items",
+                "observation_days",
+                "photo_upload_date",
+                "follow_up_date",
+                "precautions",
+                "patient_message",
+            )
+
+            changed_fields = [
+                field
+                for field in editable_fields
+                if field in serializer.validated_data
+                and getattr(agreement, field)
+                != serializer.validated_data[field]
+            ]
+
+            if not changed_fields:
+                return Response(
+                    CaseAgreementSerializer(
+                        agreement,
+                        context={"request": request},
+                    ).data
+                )
+
+            def date_value(value):
+                return (
+                    value.isoformat()
+                    if hasattr(value, "isoformat")
+                    else value
+                )
+
+            previous_data = {
+                field: date_value(getattr(agreement, field))
+                for field in editable_fields
+            }
+
+            CaseAgreementRevision.objects.create(
+                agreement=agreement,
+                version=agreement.version,
+                previous_data=previous_data,
+                changed_fields=changed_fields,
+                edited_by=request.user,
+            )
+
+            agreement = serializer.save(
+                version=agreement.version + 1,
+                status=CaseAgreement.Status.IN_REVIEW,
+                edited_by=request.user,
+                edited_at=timezone.now(),
+                finalized_at=None,
+            )
+
+            # 수정되면 양측의 기존 검토를 모두 무효화합니다.
+            agreement.reviews.all().delete()
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data
+        )
+
+class CaseAgreementReviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        with transaction.atomic():
+            agreement = get_object_or_404(
+                CaseAgreement.objects.select_for_update(),
+                chat_room=chat_room,
+            )
+
+            if agreement.status == CaseAgreement.Status.FINAL:
+                raise ValidationError(
+                    "이미 최종 합의가 완료되었습니다."
+                )
+
+            CaseAgreementReview.objects.update_or_create(
+                agreement=agreement,
+                hospital=request.user,
+                defaults={
+                    "reviewed_version": agreement.version,
+                    "reviewed_at": timezone.now(),
+                },
+            )
+
+            participant_ids = {
+                chat_room.medical_case.origin_hospital_id,
+                chat_room.partner_hospital_id,
+            }
+
+            reviewed_ids = set(
+                agreement.reviews.filter(
+                    reviewed_version=agreement.version,
+                ).values_list("hospital_id", flat=True)
+            )
+
+            if reviewed_ids == participant_ids:
+                agreement.status = CaseAgreement.Status.FINAL
+                agreement.finalized_at = timezone.now()
+            else:
+                agreement.status = CaseAgreement.Status.IN_REVIEW
+
+            agreement.save(
+                update_fields=(
+                    "status",
+                    "finalized_at",
+                    "updated_at",
+                )
+            )
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data
+        )
+
+class CaseAgreementRevisionRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        with transaction.atomic():
+            agreement = get_object_or_404(
+                CaseAgreement.objects.select_for_update(),
+                chat_room=chat_room,
+            )
+
+            if agreement.status != CaseAgreement.Status.FINAL:
+                raise ValidationError(
+                    "최종 합의 상태에서만 수정 요청할 수 있습니다."
+                )
+
+            agreement.reviews.all().delete()
+
+            agreement.status = CaseAgreement.Status.IN_REVIEW
+            agreement.finalized_at = None
+            agreement.revision_requested_by = request.user
+            agreement.revision_requested_at = timezone.now()
+
+            agreement.save(
+                update_fields=(
+                    "status",
+                    "finalized_at",
+                    "revision_requested_by",
+                    "revision_requested_at",
+                    "updated_at",
+                )
+            )
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data
+        )
+
+class CaseAgreementRevisionListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        agreement = get_object_or_404(
+            CaseAgreement,
+            chat_room=chat_room,
+        )
+
+        revisions = (
+            agreement.revisions
+            .select_related("edited_by")
+            .order_by("-version")
+        )
+
+        serializer = CaseAgreementRevisionSerializer(
+            revisions,
+            many=True,
+        )
+
+        return Response(
+            {
+                "agreement_id": agreement.id,
+                "current_version": agreement.version,
+                "revisions": serializer.data,
+            }
         )

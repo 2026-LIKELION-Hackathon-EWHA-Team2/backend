@@ -391,3 +391,111 @@ class CaseSyncRequest(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True,
     )
+
+
+
+class CaseAgreement(models.Model):
+    class Status(models.TextChoices):
+        AI_DRAFT = "AI_DRAFT", "AI 정리 초안"
+        IN_REVIEW = "IN_REVIEW", "의료진 검토 중"
+        FINAL = "FINAL", "최종 합의"
+
+    chat_room = models.OneToOneField(
+        "CaseChatRoom",
+        on_delete=models.PROTECT,
+        related_name="agreement",
+    )
+
+    judgment_draft = models.TextField()
+    evidence_items = models.JSONField(default=list)
+
+    observation_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+    photo_upload_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+    follow_up_date = models.DateField(
+        null=True,
+        blank=True,
+    )
+
+    precautions = models.TextField(blank=True, default="")
+    patient_message = models.TextField(blank=True, default="")
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.AI_DRAFT,
+    )
+    version = models.PositiveIntegerField(default=1)
+
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="edited_case_agreements",
+    )
+    edited_at = models.DateTimeField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    revision_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="requested_agreement_revisions",
+    )
+    revision_requested_at = models.DateTimeField(null=True, blank=True)
+
+
+class CaseAgreementReview(models.Model):
+    agreement = models.ForeignKey(
+        CaseAgreement,
+        on_delete=models.CASCADE,
+        related_name="reviews",
+    )
+    hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="case_agreement_reviews",
+    )
+
+    reviewed_version = models.PositiveIntegerField()
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("agreement", "hospital"),
+                name="unique_agreement_hospital_review",
+            ),
+        ]
+
+
+class CaseAgreementRevision(models.Model):
+    agreement = models.ForeignKey(
+        CaseAgreement,
+        on_delete=models.CASCADE,
+        related_name="revisions",
+    )
+
+    version = models.PositiveIntegerField()
+    previous_data = models.JSONField()
+    changed_fields = models.JSONField(default=list)
+
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="case_agreement_revisions",
+    )
+    edited_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-version",)
