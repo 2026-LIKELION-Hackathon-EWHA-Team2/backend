@@ -1,6 +1,10 @@
 from django.urls import path
 
 from .views import (
+    CaseAgreementDetailView,
+    CaseAgreementReviewView,
+    CaseAgreementRevisionListView,
+    CaseAgreementRevisionRequestView,
     AdverseEffectUpdateView,
     CaseChatMessageListCreateView,
     CaseCollaborationRequestAcceptView,
@@ -64,5 +68,25 @@ urlpatterns = [
         "collaboration-requests/<int:collaboration_request_id>/",
         CaseCollaborationRequestDetailView.as_view(),
         name="collaboration-request-detail",
+    ),
+    path(
+        "<int:case_id>/chat/rooms/<int:room_id>/agreement/",
+        CaseAgreementDetailView.as_view(),
+        name="case-agreement-detail",
+    ),
+    path(
+        "<int:case_id>/chat/rooms/<int:room_id>/agreement/review/",
+        CaseAgreementReviewView.as_view(),
+        name="case-agreement-review",
+    ),
+    path(
+        "<int:case_id>/chat/rooms/<int:room_id>/agreement/revisions/",
+        CaseAgreementRevisionListView.as_view(),
+        name="case-agreement-revision-list",
+    ),
+    path(
+        "<int:case_id>/chat/rooms/<int:room_id>/agreement/revision-request/",
+        CaseAgreementRevisionRequestView.as_view(),
+        name="case-agreement-revision-request",
     ),
 ]

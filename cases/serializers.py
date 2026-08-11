@@ -6,6 +6,8 @@ from selfsymptoms.serializers import PatientSymptomCaseSerializer
 
 from accounts.models import User
 from .models import (
+    CaseAgreement,
+    CaseAgreementRevision,
     CaseAdverseEffect,
     CaseIngredient,
     CaseSyncRequest,
@@ -619,3 +621,195 @@ class CaseCollaborationRequestDetailSerializer(
             sync_request,
             context=self.context,
         ).data
+
+
+class EvidenceItemSerializer(serializers.Serializer):
+    id = serializers.CharField(max_length=100)
+    content = serializers.CharField(max_length=1000)
+    order = serializers.IntegerField(min_value=1)
+
+
+class CaseAgreementSerializer(serializers.ModelSerializer):
+    evidence_items = EvidenceItemSerializer(many=True)
+    edited_by_name = serializers.CharField(
+        source="edited_by.name",
+        read_only=True,
+        default=None,
+    )
+    reviews = serializers.SerializerMethodField()
+    changed_fields = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+    requires_re_review = serializers.SerializerMethodField()
+
+    revision_requested_by_name = serializers.CharField(
+        source="revision_requested_by.name",
+        read_only=True,
+        default=None,
+    )
+
+    class Meta:
+        model = CaseAgreement
+        fields = (
+            "id",
+            "chat_room",
+            "judgment_draft",
+            "evidence_items",
+            "observation_days",
+            "photo_upload_date",
+            "follow_up_date",
+            "precautions",
+            "patient_message",
+            "status",
+            "version",
+            "edited_by_name",
+            "edited_at",
+            "finalized_at",
+            "reviews",
+            "changed_fields",
+            "can_edit",
+            "requires_re_review",
+            "created_at",
+            "updated_at",
+            "revision_requested_by_name",
+            "revision_requested_at",
+        )
+        read_only_fields = (
+            "id",
+            "chat_room",
+            "status",
+            "version",
+            "edited_by_name",
+            "edited_at",
+            "finalized_at",
+            "reviews",
+            "changed_fields",
+            "can_edit",
+            "requires_re_review",
+            "created_at",
+            "updated_at",
+            "revision_requested_by_name",
+            "revision_requested_at",
+        )
+
+    def validate_evidence_items(self, items):
+        if not items:
+            raise serializers.ValidationError(
+                "주요 근거를 한 개 이상 입력해주세요."
+            )
+
+        ids = [item["id"] for item in items]
+        orders = [item["order"] for item in items]
+
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError(
+                "주요 근거 ID는 중복될 수 없습니다."
+            )
+
+        if len(orders) != len(set(orders)):
+            raise serializers.ValidationError(
+                "주요 근거 순서는 중복될 수 없습니다."
+            )
+
+        expected_orders = list(range(1, len(items) + 1))
+
+        if sorted(orders) != expected_orders:
+            raise serializers.ValidationError(
+                "주요 근거 순서는 1부터 연속되어야 합니다."
+            )
+
+        return sorted(items, key=lambda item: item["order"])
+
+    def validate(self, attrs):
+        photo_date = attrs.get(
+            "photo_upload_date",
+            getattr(self.instance, "photo_upload_date", None),
+        )
+        follow_up_date = attrs.get(
+            "follow_up_date",
+            getattr(self.instance, "follow_up_date", None),
+        )
+
+        if (
+            photo_date is not None
+            and follow_up_date is not None
+            and follow_up_date < photo_date
+        ):
+            raise serializers.ValidationError(
+                {
+                    "follow_up_date": (
+                        "추가 확인일은 사진 재업로드일보다 "
+                        "빠를 수 없습니다."
+                    )
+                }
+            )
+
+        return attrs
+
+    def get_reviews(self, obj):
+        return [
+            {
+                "hospital_id": review.hospital_id,
+                "hospital_name": review.hospital.name,
+                "reviewed_version": review.reviewed_version,
+                "reviewed_at": review.reviewed_at,
+                "is_current_version": (
+                    review.reviewed_version == obj.version
+                ),
+            }
+            for review in obj.reviews.all()
+        ]
+
+    def get_changed_fields(self, obj):
+        latest_revision = obj.revisions.first()
+
+        if latest_revision is None:
+            return []
+
+        return latest_revision.changed_fields
+
+    def get_can_edit(self, obj):
+        request = self.context.get("request")
+
+        if request is None:
+            return False
+
+        participant_ids = {
+            obj.chat_room.medical_case.origin_hospital_id,
+            obj.chat_room.partner_hospital_id,
+        }
+
+        return (
+            request.user.id in participant_ids
+            and obj.status != CaseAgreement.Status.FINAL
+        )
+
+    def get_requires_re_review(self, obj):
+        current_review_count = obj.reviews.filter(
+            reviewed_version=obj.version,
+        ).count()
+
+        return (
+            obj.status == CaseAgreement.Status.IN_REVIEW
+            and current_review_count < 2
+            and obj.version > 1
+        )
+
+
+class CaseAgreementRevisionSerializer(
+    serializers.ModelSerializer
+):
+    edited_by_name = serializers.CharField(
+        source="edited_by.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = CaseAgreementRevision
+        fields = (
+            "id",
+            "version",
+            "previous_data",
+            "changed_fields",
+            "edited_by_name",
+            "edited_at",
+        )
