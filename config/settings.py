@@ -87,6 +87,10 @@ OPENAI_TRANSLATION_MODEL = os.environ.get(
     "gpt-5.6-terra",
 )
 
+OPENAI_AGREEMENT_MODEL = os.environ.get(
+    "OPENAI_AGREEMENT_MODEL",
+    OPENAI_TRANSLATION_MODEL,
+)
 
 REST_USE_JWT = True
 
