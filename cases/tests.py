@@ -6,6 +6,10 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from .models import (
+    CaseAgreement,
+    CaseAgreementReview,
+    CaseChatRoom,
+    MedicalCase,
     CaseAdverseEffect,
     CaseIngredient,
     MedicalCase,
@@ -430,4 +434,214 @@ class MedicalCaseAPITests(APITestCase):
         self.assertEqual(
             response.status_code,
             status.HTTP_401_UNAUTHORIZED,
+        )
+
+class CaseAgreementAPITests(APITestCase):
+    def setUp(self):
+        self.patient = User.objects.create_user(
+            username="agreement-patient",
+            password="TestPassword!2026",
+            name="환자",
+            user_type=User.UserType.PATIENT,
+        )
+        self.origin = User.objects.create_user(
+            username="agreement-origin",
+            password="TestPassword!2026",
+            name="자국 병원",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.partner = User.objects.create_user(
+            username="agreement-partner",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.outsider = User.objects.create_user(
+            username="agreement-outsider",
+            password="TestPassword!2026",
+            name="다른 병원",
+            user_type=User.UserType.HOSPITAL,
+        )
+
+        self.medical_case = MedicalCase.objects.create(
+            patient=self.patient,
+            origin_hospital=self.origin,
+            partner_hospital=self.partner,
+            procedure_name="레이저 시술",
+            procedure_area="얼굴",
+            procedure_date=date(2026, 8, 1),
+            clinician_note="경과 관찰이 필요합니다.",
+        )
+        self.chat_room = CaseChatRoom.objects.create(
+            medical_case=self.medical_case,
+            partner_hospital=self.partner,
+        )
+
+        self.detail_url = reverse(
+            "case-agreement-detail",
+            kwargs={
+                "case_id": self.medical_case.id,
+                "room_id": self.chat_room.id,
+            },
+        )
+        self.review_url = reverse(
+            "case-agreement-review",
+            kwargs={
+                "case_id": self.medical_case.id,
+                "room_id": self.chat_room.id,
+            },
+        )
+        self.revision_request_url = reverse(
+            "case-agreement-revision-request",
+            kwargs={
+                "case_id": self.medical_case.id,
+                "room_id": self.chat_room.id,
+            },
+        )
+
+        self.payload = {
+            "judgment_draft": "경과 관찰이 필요합니다.",
+            "evidence_items": [
+                {
+                    "id": "evidence-1",
+                    "content": "부종 및 홍반이 경미함",
+                    "order": 1,
+                },
+                {
+                    "id": "evidence-2",
+                    "content": "감염 징후 없음",
+                    "order": 2,
+                },
+            ],
+            "observation_days": 3,
+            "photo_upload_date": "2026-08-14",
+            "follow_up_date": "2026-08-21",
+            "precautions": "증상이 악화되면 병원에 방문하세요.",
+            "patient_message": "현재는 경과를 지켜봐 주세요.",
+        }
+
+    def create_agreement(self):
+        self.client.force_authenticate(user=self.origin)
+        return self.client.post(
+            self.detail_url,
+            self.payload,
+            format="json",
+        )
+
+    def test_participant_can_create_ai_draft(self):
+        response = self.create_agreement()
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["status"],
+            CaseAgreement.Status.AI_DRAFT,
+        )
+        self.assertEqual(response.data["version"], 1)
+
+    def test_outside_hospital_cannot_read_agreement(self):
+        self.create_agreement()
+        self.client.force_authenticate(user=self.outsider)
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_both_hospitals_review_to_finalize(self):
+        self.create_agreement()
+
+        first_response = self.client.post(
+            self.review_url,
+            format="json",
+        )
+        self.assertEqual(
+            first_response.data["status"],
+            CaseAgreement.Status.IN_REVIEW,
+        )
+
+        self.client.force_authenticate(user=self.partner)
+        second_response = self.client.post(
+            self.review_url,
+            format="json",
+        )
+
+        self.assertEqual(
+            second_response.data["status"],
+            CaseAgreement.Status.FINAL,
+        )
+        self.assertIsNotNone(
+            second_response.data["finalized_at"],
+        )
+
+    def test_edit_invalidates_existing_review(self):
+        self.create_agreement()
+        self.client.post(self.review_url, format="json")
+
+        response = self.client.patch(
+            self.detail_url,
+            {
+                "judgment_draft": "추가 진료를 권장합니다.",
+            },
+            format="json",
+        )
+
+        agreement = CaseAgreement.objects.get(
+            chat_room=self.chat_room,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(agreement.version, 2)
+        self.assertEqual(
+            agreement.status,
+            CaseAgreement.Status.IN_REVIEW,
+        )
+        self.assertFalse(agreement.reviews.exists())
+        self.assertEqual(
+            response.data["changed_fields"],
+            ["judgment_draft"],
+        )
+
+    def test_final_agreement_requires_revision_request(self):
+        self.create_agreement()
+        self.client.post(self.review_url, format="json")
+
+        self.client.force_authenticate(user=self.partner)
+        self.client.post(self.review_url, format="json")
+
+        blocked_response = self.client.patch(
+            self.detail_url,
+            {"judgment_draft": "수정 내용"},
+            format="json",
+        )
+        self.assertEqual(
+            blocked_response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        request_response = self.client.post(
+            self.revision_request_url,
+            format="json",
+        )
+        self.assertEqual(
+            request_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            request_response.data["status"],
+            CaseAgreement.Status.IN_REVIEW,
+        )
+
+        edit_response = self.client.patch(
+            self.detail_url,
+            {"judgment_draft": "수정 내용"},
+            format="json",
+        )
+        self.assertEqual(
+            edit_response.status_code,
+            status.HTTP_200_OK,
         )
