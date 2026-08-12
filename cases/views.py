@@ -1007,6 +1007,8 @@ class CaseAgreementReviewView(APIView):
             if reviewed_ids == participant_ids:
                 agreement.status = CaseAgreement.Status.FINAL
                 agreement.finalized_at = timezone.now()
+                agreement.revision_requested_by = None
+                agreement.revision_requested_at = None
             else:
                 agreement.status = CaseAgreement.Status.IN_REVIEW
 
@@ -1014,6 +1016,8 @@ class CaseAgreementReviewView(APIView):
                 update_fields=(
                     "status",
                     "finalized_at",
+                    "revision_requested_by",
+                    "revision_requested_at",
                     "updated_at",
                 )
             )
