@@ -675,7 +675,6 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         default=None,
     )
     reviews = serializers.SerializerMethodField()
-    changed_fields = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     requires_re_review = serializers.SerializerMethodField()
     follow_up_actions = serializers.SerializerMethodField()
@@ -705,7 +704,6 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "edited_at",
             "finalized_at",
             "reviews",
-            "changed_fields",
             "can_edit",
             "requires_re_review",
             "follow_up_actions",
@@ -723,7 +721,6 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "edited_at",
             "finalized_at",
             "reviews",
-            "changed_fields",
             "can_edit",
             "requires_re_review",
             "created_at",
@@ -825,14 +822,6 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
                 ),
             },
         }
-
-    def get_changed_fields(self, obj):
-        latest_revision = obj.revisions.first()
-
-        if latest_revision is None:
-            return []
-
-        return latest_revision.changed_fields
 
     def get_can_edit(self, obj):
         request = self.context.get("request")
