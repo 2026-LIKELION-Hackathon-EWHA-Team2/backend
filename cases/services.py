@@ -98,7 +98,8 @@ def generate_case_agreement(case_data, messages):
             "    {\n"
             '      "id": "evidence-1",\n'
             '      "content": "string",\n'
-            '      "order": 1\n'
+            '      "order": 1,\n'
+            '      "label": "short UI badge label"\n'
             "    }\n"
             "  ],\n"
             '  "observation_days": null,\n'
@@ -107,8 +108,11 @@ def generate_case_agreement(case_data, messages):
             '  "precautions": "string",\n'
             '  "patient_message": "string"\n'
             "}\n"
-            "Use null when a period or date was not explicitly "
-            "agreed upon."
+            "Evidence items may be an empty list when there is no "
+            "explicit supporting evidence. The evidence label must be "
+            "a short Korean UI badge such as 경미, 없음, or 권장. "
+            "Use null when an observation period, photo upload date, "
+            "or follow-up date was not explicitly agreed upon."
         ),
     )
 

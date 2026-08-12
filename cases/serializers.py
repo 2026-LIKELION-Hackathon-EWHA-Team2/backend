@@ -181,11 +181,6 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
-    adverse_effects = CaseAdverseEffectSerializer(
-        many=True,
-        read_only=True,
-    )
-
     class Meta:
         model = MedicalCase
         fields = (
@@ -665,6 +660,11 @@ class EvidenceItemSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=100)
     content = serializers.CharField(max_length=1000)
     order = serializers.IntegerField(min_value=1)
+    label = serializers.CharField(
+        max_length=30,
+        required=False,
+        default="없음",
+    )
 
 
 class CaseAgreementSerializer(serializers.ModelSerializer):
@@ -678,6 +678,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
     changed_fields = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     requires_re_review = serializers.SerializerMethodField()
+    follow_up_actions = serializers.SerializerMethodField()
 
     revision_requested_by_name = serializers.CharField(
         source="revision_requested_by.name",
@@ -695,6 +696,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "observation_days",
             "photo_upload_date",
             "follow_up_date",
+            "follow_up_actions",
             "precautions",
             "patient_message",
             "status",
@@ -706,6 +708,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "changed_fields",
             "can_edit",
             "requires_re_review",
+            "follow_up_actions",
             "created_at",
             "updated_at",
             "revision_requested_by_name",
@@ -731,9 +734,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
 
     def validate_evidence_items(self, items):
         if not items:
-            raise serializers.ValidationError(
-                "주요 근거를 한 개 이상 입력해주세요."
-            )
+            return []
 
         ids = [item["id"] for item in items]
         orders = [item["order"] for item in items]
@@ -796,6 +797,34 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             }
             for review in obj.reviews.all()
         ]
+
+    def get_follow_up_actions(self, obj):
+        return {
+            "symptom_observation": {
+                "days": obj.observation_days,
+                "display": (
+                    f"{obj.observation_days}일"
+                    if obj.observation_days is not None
+                    else "없음"
+                ),
+            },
+            "photo_reupload": {
+                "date": obj.photo_upload_date,
+                "display": (
+                    obj.photo_upload_date.isoformat()
+                    if obj.photo_upload_date is not None
+                    else "없음"
+                ),
+            },
+            "additional_check": {
+                "date": obj.follow_up_date,
+                "display": (
+                    obj.follow_up_date.isoformat()
+                    if obj.follow_up_date is not None
+                    else "없음"
+                ),
+            },
+        }
 
     def get_changed_fields(self, obj):
         latest_revision = obj.revisions.first()
@@ -999,6 +1028,8 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
     )
     transmitted_data = serializers.SerializerMethodField()
     agreements = serializers.SerializerMethodField()
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
 
     class Meta:
         model = CaseTransfer
@@ -1013,6 +1044,8 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
             "target_language",
             "transmitted_data",
             "agreements",
+            "collaboration_request_id",
+            "collaboration_request_status",
             "status",
             "transferred_at",
             "created_at",
@@ -1021,6 +1054,28 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
 
     def get_case_number(self, obj):
         return f"CASE-{obj.created_at.year}-{obj.id:06d}"
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.id
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.status
+            if collaboration_request is not None
+            else None
+        )
 
     def get_transmitted_data(self, obj):
         structured = obj.structured_data or {}

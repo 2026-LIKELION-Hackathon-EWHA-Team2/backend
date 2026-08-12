@@ -1332,6 +1332,26 @@ class CaseTransferSendView(APIView):
             ]
         )
 
+        medical_case = transfer.medical_case
+        medical_case.partner_hospital = transfer.partner_hospital
+        medical_case.status = MedicalCase.Status.TRANSFERRED
+        medical_case.transferred_at = transfer.transferred_at
+        medical_case.save(
+            update_fields=[
+                "partner_hospital",
+                "status",
+                "transferred_at",
+                "updated_at",
+            ]
+        )
+
+        CaseCollaborationRequest.objects.get_or_create(
+            medical_case=medical_case,
+            defaults={
+                "status": CaseCollaborationRequest.Status.REQUESTED,
+            },
+        )
+
         return Response(
             CaseTransferDetailSerializer(transfer).data,
             status=status.HTTP_200_OK,
@@ -1358,6 +1378,7 @@ class PartnerCaseTransferListView(generics.ListAPIView):
                 "partner_hospital",
                 "medical_case",
                 "medical_case__origin_hospital",
+                "medical_case__collaboration_request",
             )
             .order_by("-transferred_at")
         )
@@ -1384,5 +1405,6 @@ class PartnerCaseTransferDetailView(generics.RetrieveAPIView):
                 "partner_hospital",
                 "medical_case",
                 "medical_case__origin_hospital",
+                "medical_case__collaboration_request",
             )
         )
