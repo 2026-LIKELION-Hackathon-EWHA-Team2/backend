@@ -120,6 +120,11 @@ class HospitalProfile(models.Model):
         blank=True,
     )
 
+    language_code = models.CharField(
+        max_length=10,
+        default="en",
+    )
+
     latitude = models.DecimalField(
         max_digits=10,
         decimal_places=7,

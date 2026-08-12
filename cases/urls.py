@@ -16,6 +16,12 @@ from .views import (
     MedicalCaseListCreateView,
     CaseSyncRequestListCreateView,
     CaseSyncRequestReviewView,
+    CaseTransferListCreateView,
+    CaseTransferDetailView,
+    CaseTransferReviewView,
+    CaseTransferSendView,
+    PartnerCaseTransferListView,
+    PartnerCaseTransferDetailView,
 )
 
 
@@ -94,5 +100,35 @@ urlpatterns = [
         "<int:case_id>/chat/rooms/<int:room_id>/agreement/revision-request/",
         CaseAgreementRevisionRequestView.as_view(),
         name="case-agreement-revision-request",
+    ),
+    path(
+        "transfers/",
+        CaseTransferListCreateView.as_view(),
+        name="case-transfer-list-create",
+    ),
+    path(
+        "transfers/<int:transfer_id>/",
+        CaseTransferDetailView.as_view(),
+        name="case-transfer-detail",
+    ),
+    path(
+        "transfers/<int:transfer_id>/review/",
+        CaseTransferReviewView.as_view(),
+        name="case-transfer-review",
+    ),
+    path(
+        "transfers/<int:transfer_id>/send/",
+        CaseTransferSendView.as_view(),
+        name="case-transfer-send",
+    ),
+    path(
+        "transfers/received/",
+        PartnerCaseTransferListView.as_view(),
+        name="partner-case-transfer-list",
+    ),
+    path(
+        "transfers/received/<int:transfer_id>/",
+        PartnerCaseTransferDetailView.as_view(),
+        name="partner-case-transfer-detail",
     ),
 ]

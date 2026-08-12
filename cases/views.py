@@ -15,9 +15,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from django.conf import settings
+from accounts.models import User
 
 from .models import (
     CaseAgreement,
+    CaseTransfer,
     CaseAgreementReview,
     CaseAgreementRevision,
     CaseChatMessageTranslation,
@@ -29,12 +31,17 @@ from .models import (
 from .services import (
     generate_case_agreement,
     translate_medical_message,
+    translate_and_structure_transfer,
 )
 
 
 
 from .permissions import IsCaseChatParticipant, IsPatient, IsHospital
 from .serializers import (
+    CaseTransferCreateSerializer,
+    CaseTransferDetailSerializer,
+    CaseTransferReviewSerializer,
+    PartnerCaseTransferSerializer,
     CaseAgreementSerializer,
     CaseAgreementRevisionSerializer,
     AdverseEffectUpdateSerializer,
@@ -1194,4 +1201,188 @@ class CaseAgreementGenerateView(APIView):
                 context={"request": request},
             ).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class CaseTransferListCreateView(generics.ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return CaseTransferCreateSerializer
+        return CaseTransferDetailSerializer
+
+    def get_queryset(self):
+        return (
+            CaseTransfer.objects
+            .filter(patient=self.request.user)
+            .select_related(
+                "patient",
+                "partner_hospital",
+                "symptom_case",
+                "medical_case",
+            )
+            .order_by("-created_at")
+        )
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        transfer = serializer.save()
+
+        try:
+            result = translate_and_structure_transfer(transfer)
+            transfer.translated_data = result
+            transfer.structured_data = result
+            transfer.status = CaseTransfer.Status.REVIEW_REQUIRED
+            transfer.processing_error = ""
+        except Exception as exc:
+            transfer.status = CaseTransfer.Status.PROCESSING_FAILED
+            transfer.processing_error = str(exc)
+
+        transfer.save(
+            update_fields=[
+                "translated_data",
+                "structured_data",
+                "status",
+                "processing_error",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            CaseTransferDetailSerializer(transfer).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CaseTransferDetailView(generics.RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CaseTransferDetailSerializer
+    lookup_url_kwarg = "transfer_id"
+
+    def get_queryset(self):
+        return CaseTransfer.objects.filter(
+            patient=self.request.user,
+        ).select_related(
+            "partner_hospital",
+            "medical_case",
+            "medical_case__origin_hospital",
+        )
+
+
+class CaseTransferReviewView(generics.UpdateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CaseTransferReviewSerializer
+    lookup_url_kwarg = "transfer_id"
+    http_method_names = ["patch"]
+
+    def get_queryset(self):
+        return CaseTransfer.objects.filter(
+            patient=self.request.user,
+        )
+
+
+class CaseTransferSendView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, transfer_id):
+        transfer = get_object_or_404(
+            CaseTransfer.objects.select_for_update(),
+            id=transfer_id,
+            patient=request.user,
+        )
+
+        if transfer.status != CaseTransfer.Status.READY_TO_TRANSFER:
+            return Response(
+                {"detail": "전송 준비가 완료되지 않았습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not all([
+            transfer.procedure_medication_agreed,
+            transfer.adverse_effect_clinician_note_agreed,
+            transfer.overseas_ai_processing_agreed,
+        ]):
+            return Response(
+                {"detail": "필수 동의가 완료되지 않았습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not any([
+            transfer.include_patient_info,
+            transfer.include_procedure_info,
+            transfer.include_adverse_effects,
+            transfer.include_clinician_note,
+        ]):
+            return Response(
+                {"detail": "전송 항목을 하나 이상 선택해야 합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        transfer.status = CaseTransfer.Status.TRANSFERRED
+        transfer.transferred_at = timezone.now()
+        transfer.save(
+            update_fields=[
+                "status",
+                "transferred_at",
+                "updated_at",
+            ]
+        )
+
+        return Response(
+            CaseTransferDetailSerializer(transfer).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class PartnerCaseTransferListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = PartnerCaseTransferSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.user_type != User.UserType.HOSPITAL:
+            return CaseTransfer.objects.none()
+
+        return (
+            CaseTransfer.objects
+            .filter(
+                partner_hospital=user,
+                status=CaseTransfer.Status.TRANSFERRED,
+            )
+            .select_related(
+                "partner_hospital",
+                "medical_case",
+                "medical_case__origin_hospital",
+            )
+            .order_by("-transferred_at")
+        )
+
+
+class PartnerCaseTransferDetailView(generics.RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = PartnerCaseTransferSerializer
+    lookup_url_kwarg = "transfer_id"
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.user_type != User.UserType.HOSPITAL:
+            return CaseTransfer.objects.none()
+
+        return (
+            CaseTransfer.objects
+            .filter(
+                partner_hospital=user,
+                status=CaseTransfer.Status.TRANSFERRED,
+            )
+            .select_related(
+                "partner_hospital",
+                "medical_case",
+                "medical_case__origin_hospital",
+            )
         )

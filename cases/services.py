@@ -142,3 +142,79 @@ def generate_case_agreement(case_data, messages):
         )
 
     return agreement_data
+
+
+def translate_and_structure_transfer(transfer):
+    symptom_case = transfer.symptom_case
+    medical_case = transfer.medical_case
+
+    source_data = {
+        "patient_info": {
+            "name": transfer.patient_name,
+            "gender": transfer.patient_gender,
+            "birth_date": (
+                transfer.patient_birth_date.isoformat()
+            ),
+        },
+        "symptoms": {
+            # 실제 PatientSymptomCase 필드에 맞게 변경
+            "description": symptom_case.description,
+        },
+        "procedure": {
+            "name": medical_case.procedure_name,
+            "area": medical_case.procedure_area,
+            "date": medical_case.procedure_date.isoformat(),
+        },
+        "ingredients": list(
+            medical_case.ingredients.values_list(
+                "ingredient_name",
+                flat=True,
+            )
+        ),
+        "clinician_note": medical_case.clinician_note,
+    }
+
+    target_name = LANGUAGE_NAMES.get(
+        transfer.target_language,
+        transfer.target_language,
+    )
+    client = OpenAI()
+    response = client.responses.create(
+        model=settings.OPENAI_TRANSLATION_MODEL,
+        reasoning={"effort": "low"},
+        store=False,
+        instructions=(
+            "You are a professional medical translator and data "
+            "formatter. Translate every human-readable string into "
+            f"{target_name}. Preserve the exact JSON keys and nesting. "
+            "Never add, remove, summarize, diagnose, or interpret. "
+            "Preserve medication names, dosages, units, numbers, "
+            "dates, negations, and uncertainty. Return only valid JSON."
+        ),
+        input=json.dumps(source_data, ensure_ascii=False),
+    )
+
+    output_text = response.output_text.strip()
+    if not output_text:
+        raise ValueError("번역·구조화 결과가 비어 있습니다.")
+
+    try:
+        translated_data = json.loads(output_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "번역·구조화 결과가 JSON 형식이 아닙니다."
+        ) from exc
+
+    required_fields = {
+        "patient_info",
+        "symptoms",
+        "procedure",
+        "ingredients",
+        "clinician_note",
+    }
+    if not required_fields.issubset(translated_data):
+        raise ValueError(
+            "번역·구조화 결과에 필수 항목이 없습니다."
+        )
+
+    return translated_data
