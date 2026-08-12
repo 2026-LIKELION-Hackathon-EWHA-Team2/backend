@@ -9,6 +9,7 @@ from math import (
 from accounts.models import HospitalProfile
 from cases.models import MedicalCase
 
+from .ai_service import analyze_required_specialty
 from .models import HospitalRecommendation
 
 
@@ -20,46 +21,13 @@ def determine_required_specialty(
     symptom_case,
 ):
     """
-    현재 AI API가 없으므로 임시 규칙 기반 분석.
-
-    추후 AI API 연결 시 이 함수 내부만 교체한다.
+    OpenAI를 이용하여
+    증상 케이스의 필요 진료과를 분석한다.
     """
 
-    areas = set(
-        symptom_case.areas.values_list(
-            "area_type",
-            flat=True,
-        )
+    return analyze_required_specialty(
+        symptom_case
     )
-
-    symptom_types = set(
-        symptom_case.symptom_types.values_list(
-            "symptom_type",
-            flat=True,
-        )
-    )
-
-    if "EYE" in areas:
-        return "OPHTHALMOLOGY"
-
-    if (
-        "FACE" in areas
-        or "NOSE" in areas
-        or "CHEEK" in areas
-        or "CHIN" in areas
-        or "MOUTH" in areas
-    ):
-        return "PLASTIC_SURGERY"
-
-    if (
-        "ITCHING" in symptom_types
-        or "REDNESS" in symptom_types
-    ):
-        return "DERMATOLOGY"
-
-    return "GENERAL"
-
-
 # ==========================================
 # 2. GPS 거리 계산
 # ==========================================
@@ -265,6 +233,11 @@ def generate_recommendations(
             match_request.symptom_case
         )
     )
+
+    if required_specialty is None:
+        raise ValueError(
+            "필요 진료과를 분석할 수 없습니다."
+        )
 
     match_request.required_specialty = (
         required_specialty

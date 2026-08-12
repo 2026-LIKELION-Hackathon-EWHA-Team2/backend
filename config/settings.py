@@ -13,12 +13,15 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 from datetime import timedelta
-import dj_database_url
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+import dj_database_url
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
 
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -89,6 +92,11 @@ OPENAI_TRANSLATION_MODEL = os.environ.get(
 
 OPENAI_AGREEMENT_MODEL = os.environ.get(
     "OPENAI_AGREEMENT_MODEL",
+    OPENAI_TRANSLATION_MODEL,
+)
+
+OPENAI_MATCHING_MODEL = os.environ.get(
+    "OPENAI_MATCHING_MODEL",
     OPENAI_TRANSLATION_MODEL,
 )
 
