@@ -9,3 +9,6 @@ db.sqlite3
 .env
 
 .vscode/
+
+staticfiles/
+media/
