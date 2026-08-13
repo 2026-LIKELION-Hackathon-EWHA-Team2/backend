@@ -1,11 +1,89 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
+
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import PatientProfile, User
+from .models import (
+    User,
+    PatientProfile,
+    HospitalProfile,
+    MedicalSpecialty,
+)
 
+
+class PatientProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PatientProfile
+        fields = (
+            "patient_id",
+            "name",
+            "passport_number",
+            "birth_date",
+            "nationality",
+            "phone",
+            "residence_country",
+        )
+        read_only_fields = (
+            "patient_id",
+            "name",
+        )
+
+
+class MedicalSpecialtySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MedicalSpecialty
+        fields = (
+            "hospital_specialty_id",
+            "specialty_name",
+        )
+        read_only_fields = (
+            "hospital_specialty_id",
+        )
+
+
+class HospitalProfileSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+
+    specialties = MedicalSpecialtySerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = HospitalProfile
+        fields = (
+            "hospital_id",
+            "name",
+            "country",
+            "city",
+            "address",
+            "hospital_type",
+            "language_code",
+            "latitude",
+            "longitude",
+            "phone",
+            "website",
+            "description",
+            "business_hours",
+            "image_url",
+            "specialties",
+        )
+        read_only_fields = (
+            "hospital_id",
+            "name",
+            "specialties",
+        )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -36,6 +114,16 @@ class UserSerializer(serializers.ModelSerializer):
         default=False,
     )
 
+    patient_profile = PatientProfileSerializer(
+        required=False,
+        write_only=True,
+    )
+
+    hospital_profile = HospitalProfileSerializer(
+        required=False,
+        write_only=True,
+    )
+
     class Meta:
         model = User
         fields = (
@@ -48,6 +136,9 @@ class UserSerializer(serializers.ModelSerializer):
             "privacy_agreed",
             "overseas_info_agreed",
             "marketing_agreed",
+            "preferred_language",
+            "patient_profile",
+            "hospital_profile",
         )
         read_only_fields = ("id",)
 
@@ -69,19 +160,70 @@ class UserSerializer(serializers.ModelSerializer):
                 "해외 병원 정보 공유 동의는 필수입니다."
             )
 
+        user_type = attrs.get("user_type")
+
+        patient_profile = attrs.get("patient_profile")
+        hospital_profile = attrs.get("hospital_profile")
+
+        if user_type == User.UserType.PATIENT:
+            if not patient_profile:
+                errors["patient_profile"] = (
+                    "환자 프로필 정보가 필요합니다."
+                )
+
+            if hospital_profile:
+                errors["hospital_profile"] = (
+                    "환자 계정에는 병원 프로필을 등록할 수 없습니다."
+                )
+
+        elif user_type == User.UserType.HOSPITAL:
+            if not hospital_profile:
+                errors["hospital_profile"] = (
+                    "병원 프로필 정보가 필요합니다."
+                )
+
+            if patient_profile:
+                errors["patient_profile"] = (
+                    "병원 계정에는 환자 프로필을 등록할 수 없습니다."
+                )
+
         if errors:
             raise serializers.ValidationError(errors)
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         password = validated_data.pop("password")
 
-        return User.objects.create_user(
+        patient_profile_data = validated_data.pop(
+            "patient_profile",
+            None,
+        )
+
+        hospital_profile_data = validated_data.pop(
+            "hospital_profile",
+            None,
+        )
+
+        user = User.objects.create_user(
             password=password,
             **validated_data,
         )
 
+        if user.user_type == User.UserType.PATIENT:
+            PatientProfile.objects.create(
+                user=user,
+                **patient_profile_data,
+            )
+
+        elif user.user_type == User.UserType.HOSPITAL:
+            HospitalProfile.objects.create(
+                user=user,
+                **hospital_profile_data,
+            )
+
+        return user
 
 
 class UserLoginSerializer(serializers.Serializer):
@@ -107,7 +249,7 @@ class UserLoginSerializer(serializers.Serializer):
 
         refresh_token = RefreshToken.for_user(user)
 
-        return {
+        response_data = {
             "id": user.id,
             "name": user.name,
             "login_id": user.username,
@@ -116,22 +258,20 @@ class UserLoginSerializer(serializers.Serializer):
             "refresh": str(refresh_token),
         }
 
+        if user.user_type == User.UserType.PATIENT:
+            try:
+                response_data["patient_id"] = (
+                    user.patient_profile.patient_id
+                )
+            except PatientProfile.DoesNotExist:
+                response_data["patient_id"] = None
 
-class PatientProfileSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(
-        source="user.name",
-        read_only=True,
-    )
+        elif user.user_type == User.UserType.HOSPITAL:
+            try:
+                response_data["hospital_id"] = (
+                    user.hospital_profile.hospital_id
+                )
+            except HospitalProfile.DoesNotExist:
+                response_data["hospital_id"] = None
 
-    class Meta:
-        model = PatientProfile
-        fields = (
-            "patient_id",
-            "name",
-            "passport_number",
-            "birth_date",
-            "nationality",
-            "phone",
-            "residence_country",
-        )
-        read_only_fields = fields
+        return response_data
