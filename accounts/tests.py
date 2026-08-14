@@ -53,6 +53,17 @@ class HospitalSignUpTests(TestCase):
             self.payload["medical_specialty"],
         )
 
+    def test_website_is_saved_as_free_text(self):
+        self.payload["website"] = "hospital homepage"
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            HospitalProfile.objects.get().website,
+            "hospital homepage",
+        )
+
     def test_required_agreement_is_rejected(self):
         self.payload["location_info_agreed"] = False
 
