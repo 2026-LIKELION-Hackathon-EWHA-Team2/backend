@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
@@ -7,12 +8,52 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
     HospitalProfile,
+    MedicalSpecialty,
     PatientProfile,
     User,
 )
 
 
 class UserSerializer(serializers.ModelSerializer):
+    hospital_profile_id = serializers.IntegerField(
+        source="hospital_profile.hospital_id",
+        read_only=True,
+    )
+    country = serializers.CharField(write_only=True, required=False)
+    city = serializers.CharField(write_only=True, required=False)
+    address = serializers.CharField(write_only=True, required=False)
+    hospital_type = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    language_code = serializers.CharField(
+        write_only=True, required=False, default="en"
+    )
+    latitude = serializers.DecimalField(
+        max_digits=10, decimal_places=7, write_only=True, required=False
+    )
+    longitude = serializers.DecimalField(
+        max_digits=10, decimal_places=7, write_only=True, required=False
+    )
+    phone = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    website = serializers.URLField(
+        write_only=True, required=False, allow_blank=True
+    )
+    description = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    business_hours = serializers.CharField(
+        write_only=True, required=False, allow_blank=True
+    )
+    image_url = serializers.URLField(
+        write_only=True, required=False, allow_blank=True
+    )
+    medical_specialty = serializers.CharField(
+        max_length=100,
+        write_only=True,
+        required=False,
+    )
     login_id = serializers.CharField(
         source="username",
         max_length=50,
@@ -47,6 +88,11 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         default=False,
     )
+    location_info_agreed = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+    )
 
     class Meta:
         model = User
@@ -61,6 +107,21 @@ class UserSerializer(serializers.ModelSerializer):
             "overseas_info_agreed",
             "marketing_agreed",
             "preferred_language",
+            "location_info_agreed",
+            "hospital_profile_id",
+            "country",
+            "city",
+            "address",
+            "hospital_type",
+            "language_code",
+            "latitude",
+            "longitude",
+            "phone",
+            "website",
+            "description",
+            "business_hours",
+            "image_url",
+            "medical_specialty",
         )
 
         read_only_fields = (
@@ -85,6 +146,24 @@ class UserSerializer(serializers.ModelSerializer):
                 "해외 병원 정보 공유 동의는 필수입니다."
             )
 
+        if attrs.get("user_type") == User.UserType.HOSPITAL:
+            required_fields = (
+                "country",
+                "city",
+                "address",
+                "latitude",
+                "longitude",
+                "medical_specialty",
+            )
+            for field in required_fields:
+                if not attrs.get(field):
+                    errors[field] = "병원 회원가입 시 필수 입력값입니다."
+
+            if not attrs.get("location_info_agreed"):
+                errors["location_info_agreed"] = (
+                    "위치정보 이용 동의는 필수입니다."
+                )
+
         if errors:
             raise serializers.ValidationError(
                 errors
@@ -92,15 +171,48 @@ class UserSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         password = validated_data.pop(
             "password"
         )
+        hospital_field_names = (
+            "country",
+            "city",
+            "address",
+            "hospital_type",
+            "language_code",
+            "latitude",
+            "longitude",
+            "phone",
+            "website",
+            "description",
+            "business_hours",
+            "image_url",
+        )
+        hospital_data = {
+            field: validated_data.pop(field)
+            for field in hospital_field_names
+            if field in validated_data
+        }
+        specialty = validated_data.pop("medical_specialty", None)
 
-        return User.objects.create_user(
+        user = User.objects.create_user(
             password=password,
             **validated_data,
         )
+
+        if user.user_type == User.UserType.HOSPITAL:
+            hospital = HospitalProfile.objects.create(
+                user=user,
+                **hospital_data,
+            )
+            MedicalSpecialty.objects.create(
+                hospital=hospital,
+                specialty_name=specialty,
+            )
+
+        return user
 
 
 class UserLoginSerializer(serializers.Serializer):

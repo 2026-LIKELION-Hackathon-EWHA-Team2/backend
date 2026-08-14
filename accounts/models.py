@@ -30,6 +30,7 @@ class User(AbstractUser):
     terms_agreed = models.BooleanField(default=False)
     privacy_agreed = models.BooleanField(default=False)
     overseas_info_agreed = models.BooleanField(default=False)
+    location_info_agreed = models.BooleanField(default=False)
 
     # 선택 동의
     marketing_agreed = models.BooleanField(default=False)
