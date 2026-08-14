@@ -1,5 +1,7 @@
 from django.shortcuts import render
 
+from datetime import date
+
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
@@ -16,12 +18,14 @@ from django.utils import timezone
 
 from django.conf import settings
 from accounts.models import User
+from selfsymptoms.models import DiagnosisAnalysis
 
 from .models import (
     CaseAgreement,
     CaseTransfer,
     CaseAgreementReview,
     CaseAgreementRevision,
+    CaseIngredient,
     CaseChatMessageTranslation,
     CaseChatRoom,
     CaseCollaborationRequest,
@@ -29,9 +33,9 @@ from .models import (
     MedicalCase,
 )
 from .services import (
+    analyze_diagnosis_document,
     generate_case_agreement,
     translate_medical_message,
-    translate_and_structure_transfer,
 )
 
 
@@ -1229,31 +1233,133 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             .order_by("-created_at")
         )
 
-    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        transfer = serializer.save()
+
+        symptom_case = serializer.validated_data["symptom_case"]
+        partner_hospital = serializer.validated_data[
+            "partner_hospital"
+        ]
+
+        symptom_data = {
+            "description": symptom_case.description,
+            "start_date": (
+                symptom_case.symptom_start_date.isoformat()
+                if symptom_case.symptom_start_date
+                else None
+            ),
+            "onset_timing": symptom_case.get_onset_timing_display()
+            if symptom_case.onset_timing
+            else None,
+            "pain_level": symptom_case.pain_level,
+            "areas": [
+                area.custom_area or area.get_area_type_display()
+                for area in symptom_case.areas.all()
+            ],
+            "types": [
+                symptom_type.custom_symptom
+                or symptom_type.get_symptom_type_display()
+                for symptom_type in symptom_case.symptom_types.all()
+            ],
+        }
 
         try:
-            result = translate_and_structure_transfer(transfer)
-            transfer.translated_data = result
-            transfer.structured_data = result
-            transfer.status = CaseTransfer.Status.REVIEW_REQUIRED
-            transfer.processing_error = ""
+            document_result = analyze_diagnosis_document(
+                symptom_case.diagnosis_document,
+                partner_hospital.hospital_profile.language_code,
+                symptom_data,
+            )
         except Exception as exc:
-            transfer.status = CaseTransfer.Status.PROCESSING_FAILED
-            transfer.processing_error = str(exc)
+            logger.exception("Diagnosis document analysis failed")
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        transfer.save(
-            update_fields=[
-                "translated_data",
-                "structured_data",
-                "status",
-                "processing_error",
-                "updated_at",
-            ]
-        )
+        procedure = document_result["procedure"]
+        try:
+            procedure_date = date.fromisoformat(procedure["date"])
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "detail": (
+                        "진단서에서 추출한 시술일 형식이 "
+                        "올바르지 않습니다."
+                    )
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        structured_data = {
+            "patient_info": {
+                "name": serializer.validated_data["patient_name"],
+                "gender": serializer.validated_data["patient_gender"],
+                "birth_date": serializer.validated_data[
+                    "patient_birth_date"
+                ].isoformat(),
+            },
+            "symptoms": {
+                **document_result["symptoms"],
+                "images": list(
+                    symptom_case.images.values_list(
+                        "image",
+                        flat=True,
+                    )
+                ),
+            },
+            "procedure": procedure,
+            "ingredients": document_result["ingredients"],
+            "clinician_note": document_result["clinician_note"],
+        }
+
+        with transaction.atomic():
+            DiagnosisAnalysis.objects.update_or_create(
+                symptom_case=symptom_case,
+                defaults={
+                    "extracted_text": document_result[
+                        "extracted_text"
+                    ],
+                    "analysis_result": {
+                        key: value
+                        for key, value in document_result.items()
+                        if key != "extracted_text"
+                    },
+                    "analyzed_at": timezone.now(),
+                },
+            )
+
+            medical_case = MedicalCase.objects.create(
+                patient=request.user,
+                origin_hospital=(
+                    symptom_case.diagnosed_hospital.user
+                ),
+                partner_hospital=partner_hospital,
+                procedure_name=procedure["name"],
+                procedure_area=procedure["area"],
+                procedure_date=procedure_date,
+                clinician_note=document_result["clinician_note"],
+                status=MedicalCase.Status.READY_TO_TRANSFER,
+            )
+
+            CaseIngredient.objects.bulk_create(
+                [
+                    CaseIngredient(
+                        medical_case=medical_case,
+                        ingredient_name=ingredient,
+                    )
+                    for ingredient
+                    in dict.fromkeys(document_result["ingredients"])
+                ]
+            )
+
+            transfer = serializer.save(
+                medical_case=medical_case,
+                structured_data=structured_data,
+                translated_data={},
+                status=CaseTransfer.Status.REVIEW_REQUIRED,
+                processing_error="",
+            )
 
         return Response(
             CaseTransferDetailSerializer(transfer).data,
