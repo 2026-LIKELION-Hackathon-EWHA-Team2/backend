@@ -1,11 +1,15 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import PatientProfile, User
-
+from .models import (
+    HospitalProfile,
+    PatientProfile,
+    User,
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -26,9 +30,17 @@ class UserSerializer(serializers.ModelSerializer):
         validators=[validate_password],
     )
 
-    terms_agreed = serializers.BooleanField(write_only=True)
-    privacy_agreed = serializers.BooleanField(write_only=True)
-    overseas_info_agreed = serializers.BooleanField(write_only=True)
+    terms_agreed = serializers.BooleanField(
+        write_only=True,
+    )
+
+    privacy_agreed = serializers.BooleanField(
+        write_only=True,
+    )
+
+    overseas_info_agreed = serializers.BooleanField(
+        write_only=True,
+    )
 
     marketing_agreed = serializers.BooleanField(
         write_only=True,
@@ -50,7 +62,10 @@ class UserSerializer(serializers.ModelSerializer):
             "marketing_agreed",
             "preferred_language",
         )
-        read_only_fields = ("id",)
+
+        read_only_fields = (
+            "id",
+        )
 
     def validate(self, attrs):
         errors = {}
@@ -71,12 +86,16 @@ class UserSerializer(serializers.ModelSerializer):
             )
 
         if errors:
-            raise serializers.ValidationError(errors)
+            raise serializers.ValidationError(
+                errors
+            )
 
         return attrs
 
     def create(self, validated_data):
-        password = validated_data.pop("password")
+        password = validated_data.pop(
+            "password"
+        )
 
         return User.objects.create_user(
             password=password,
@@ -84,9 +103,10 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
 
-
 class UserLoginSerializer(serializers.Serializer):
-    login_id = serializers.CharField(max_length=50)
+    login_id = serializers.CharField(
+        max_length=50,
+    )
 
     password = serializers.CharField(
         max_length=128,
@@ -102,23 +122,34 @@ class UserLoginSerializer(serializers.Serializer):
         if user is None:
             raise serializers.ValidationError(
                 {
-                    "detail": "아이디 또는 비밀번호가 올바르지 않습니다."
+                    "detail": (
+                        "아이디 또는 비밀번호가 "
+                        "올바르지 않습니다."
+                    )
                 }
             )
 
-        refresh_token = RefreshToken.for_user(user)
+        refresh_token = RefreshToken.for_user(
+            user
+        )
 
         return {
             "id": user.id,
             "name": user.name,
             "login_id": user.username,
             "user_type": user.user_type,
-            "access": str(refresh_token.access_token),
-            "refresh": str(refresh_token),
+            "access": str(
+                refresh_token.access_token
+            ),
+            "refresh": str(
+                refresh_token
+            ),
         }
 
 
-class PatientProfileSerializer(serializers.ModelSerializer):
+class PatientProfileSerializer(
+    serializers.ModelSerializer
+):
     name = serializers.CharField(
         source="user.name",
         read_only=True,
@@ -126,6 +157,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PatientProfile
+
         fields = (
             "patient_id",
             "name",
@@ -135,4 +167,27 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "phone",
             "residence_country",
         )
+
+        read_only_fields = fields
+
+
+class HospitalProfileSerializer(
+    serializers.ModelSerializer
+):
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = HospitalProfile
+
+        fields = (
+            "hospital_id",
+            "name",
+            "country",
+            "city",
+            "address",
+        )
+
         read_only_fields = fields
