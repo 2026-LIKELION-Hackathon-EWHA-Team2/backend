@@ -527,6 +527,11 @@ class HospitalRecommendationSelectView(
                     .hospital
                     .hospital_id,
 
+                "partner_hospital_user_id":
+                    recommendation
+                    .hospital
+                    .user_id,
+
                 "partner_hospital_name":
                     recommendation
                     .hospital

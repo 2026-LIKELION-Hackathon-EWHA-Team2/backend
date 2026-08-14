@@ -1,10 +1,13 @@
 from datetime import date
+from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from accounts.models import User
+from accounts.models import HospitalProfile, PatientProfile, User
+from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 from .models import (
     CaseAgreement,
     CaseAgreementReview,
@@ -12,6 +15,7 @@ from .models import (
     MedicalCase,
     CaseAdverseEffect,
     CaseIngredient,
+    CaseTransfer,
     MedicalCase,
 )
 
@@ -645,3 +649,127 @@ class CaseAgreementAPITests(APITestCase):
             edit_response.status_code,
             status.HTTP_200_OK,
         )
+
+
+class CaseTransferDocumentFlowTests(APITestCase):
+    def setUp(self):
+        self.patient = User.objects.create_user(
+            username="document-patient",
+            password="TestPassword!2026",
+            name="Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        self.patient_profile = PatientProfile.objects.create(
+            user=self.patient,
+            birth_date=date(1995, 3, 10),
+            residence_country="KR",
+        )
+        self.origin = User.objects.create_user(
+            username="document-origin",
+            password="TestPassword!2026",
+            name="Origin Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.origin_profile = HospitalProfile.objects.create(
+            user=self.origin,
+            country="KR",
+            city="Seoul",
+            address="Seoul",
+            language_code="ko",
+        )
+        self.partner = User.objects.create_user(
+            username="document-partner",
+            password="TestPassword!2026",
+            name="Partner Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        HospitalProfile.objects.create(
+            user=self.partner,
+            country="JP",
+            city="Tokyo",
+            address="Tokyo",
+            language_code="ja",
+        )
+        self.symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient_profile,
+            diagnosed_hospital=self.origin_profile,
+            diagnosis_document=SimpleUploadedFile(
+                "diagnosis.pdf",
+                b"test document",
+                content_type="application/pdf",
+            ),
+            description="Swelling and pain",
+            symptom_start_date=date(2026, 8, 10),
+            pain_level=3,
+            status=PatientSymptomCase.Status.HOSPITAL_SELECTED,
+        )
+        self.client.force_authenticate(user=self.patient)
+
+    @patch("cases.views.analyze_diagnosis_document")
+    def test_transfer_is_created_from_diagnosis_document(self, analyze):
+        analyze.return_value = {
+            "extracted_text": "diagnosis text",
+            "symptoms": {
+                "description": "Translated swelling and pain",
+                "start_date": "2026-08-10",
+                "onset_timing": None,
+                "pain_level": 3,
+                "areas": [],
+                "types": [],
+            },
+            "procedure": {
+                "name": "Botox",
+                "area": "Forehead",
+                "date": "2026-08-09",
+            },
+            "ingredients": ["Botulinum Toxin Type A"],
+            "clinician_note": "Observe symptoms.",
+        }
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            {
+                "symptom_case_id": self.symptom_case.pk,
+                "partner_hospital_id": self.partner.pk,
+                "patient_name": "Patient",
+                "patient_gender": CaseTransfer.Gender.OTHER,
+                "patient_birth_date": "1995-03-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        transfer = CaseTransfer.objects.get(pk=response.data["id"])
+        self.assertEqual(transfer.status, CaseTransfer.Status.REVIEW_REQUIRED)
+        self.assertEqual(transfer.target_language, "ja")
+        self.assertEqual(transfer.medical_case.origin_hospital, self.origin)
+        self.assertEqual(transfer.medical_case.procedure_name, "Botox")
+        self.assertEqual(
+            transfer.structured_data["symptoms"]["description"],
+            "Translated swelling and pain",
+        )
+        self.assertTrue(
+            DiagnosisAnalysis.objects.filter(
+                symptom_case=self.symptom_case,
+            ).exists()
+        )
+        analyze.assert_called_once()
+
+    def test_transfer_requires_diagnosis_document(self):
+        self.symptom_case.diagnosis_document = None
+        self.symptom_case.save(update_fields=["diagnosis_document"])
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            {
+                "symptom_case_id": self.symptom_case.pk,
+                "partner_hospital_id": self.partner.pk,
+                "patient_name": "Patient",
+                "patient_gender": CaseTransfer.Gender.OTHER,
+                "patient_birth_date": "1995-03-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseTransfer.objects.exists())
