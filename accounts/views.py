@@ -1,4 +1,5 @@
 from django.http import HttpRequest
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -6,23 +7,46 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import UserSerializer, UserLoginSerializer
+from .models import HospitalProfile
+from .serializers import (
+    HospitalProfileSerializer,
+    UserLoginSerializer,
+    UserSerializer,
+)
+
 
 class SignUpView(APIView):
-    def post(self, request:HttpRequest, format=None):
+    def post(self, request: HttpRequest, format=None):
         serializer = UserSerializer(data=request.data)
+
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class LoginView(APIView):
-    def post(self, request:HttpRequest, format=None):
+    def post(self, request: HttpRequest, format=None):
         serializer = UserLoginSerializer(data=request.data)
+
         if serializer.is_valid():
-            return Response(serializer.validated_data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                serializer.validated_data,
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class LogoutView(APIView):
@@ -33,7 +57,9 @@ class LogoutView(APIView):
 
         if not refresh_token:
             return Response(
-                {"detail": "refresh token이 필요합니다."},
+                {
+                    "detail": "refresh token이 필요합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -42,12 +68,47 @@ class LogoutView(APIView):
             token.blacklist()
 
             return Response(
-                {"detail": "로그아웃되었습니다."},
+                {
+                    "detail": "로그아웃되었습니다."
+                },
                 status=status.HTTP_200_OK,
             )
 
         except TokenError:
             return Response(
-                {"detail": "유효하지 않거나 만료된 refresh token입니다."},
+                {
+                    "detail": (
+                        "유효하지 않거나 만료된 "
+                        "refresh token입니다."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+class HospitalListView(APIView):
+    """
+    회원가입된 병원 목록 조회 API
+
+    GET /accounts/hospitals/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        hospitals = (
+            HospitalProfile.objects
+            .select_related("user")
+            .all()
+            .order_by("user__name")
+        )
+
+        serializer = HospitalProfileSerializer(
+            hospitals,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
