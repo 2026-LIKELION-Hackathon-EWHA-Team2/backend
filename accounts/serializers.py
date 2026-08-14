@@ -19,6 +19,10 @@ class UserSerializer(serializers.ModelSerializer):
         source="hospital_profile.hospital_id",
         read_only=True,
     )
+    patient_profile_id = serializers.IntegerField(
+        source="patient_profile.patient_id",
+        read_only=True,
+    )
     country = serializers.CharField(write_only=True, required=False)
     city = serializers.CharField(write_only=True, required=False)
     address = serializers.CharField(write_only=True, required=False)
@@ -50,6 +54,12 @@ class UserSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_blank=True
     )
     medical_specialty = serializers.CharField(
+        max_length=100,
+        write_only=True,
+        required=False,
+    )
+    birth_date = serializers.DateField(write_only=True, required=False)
+    passport_number = serializers.CharField(
         max_length=100,
         write_only=True,
         required=False,
@@ -93,6 +103,11 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         default=False,
     )
+    overseas_transfer_agreed = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+    )
 
     class Meta:
         model = User
@@ -105,10 +120,12 @@ class UserSerializer(serializers.ModelSerializer):
             "terms_agreed",
             "privacy_agreed",
             "overseas_info_agreed",
+            "overseas_transfer_agreed",
             "marketing_agreed",
             "preferred_language",
             "location_info_agreed",
             "hospital_profile_id",
+            "patient_profile_id",
             "country",
             "city",
             "address",
@@ -122,6 +139,8 @@ class UserSerializer(serializers.ModelSerializer):
             "business_hours",
             "image_url",
             "medical_specialty",
+            "birth_date",
+            "passport_number",
         )
 
         read_only_fields = (
@@ -164,6 +183,21 @@ class UserSerializer(serializers.ModelSerializer):
                     "위치정보 이용 동의는 필수입니다."
                 )
 
+        if attrs.get("user_type") == User.UserType.PATIENT:
+            for field in (
+                "address",
+                "phone",
+                "birth_date",
+                "passport_number",
+            ):
+                if not attrs.get(field):
+                    errors[field] = "환자 회원가입 시 필수 입력값입니다."
+
+            if not attrs.get("overseas_transfer_agreed"):
+                errors["overseas_transfer_agreed"] = (
+                    "개인정보 국외 이전 동의는 필수입니다."
+                )
+
         if errors:
             raise serializers.ValidationError(
                 errors
@@ -190,12 +224,14 @@ class UserSerializer(serializers.ModelSerializer):
             "business_hours",
             "image_url",
         )
-        hospital_data = {
+        profile_data = {
             field: validated_data.pop(field)
             for field in hospital_field_names
             if field in validated_data
         }
         specialty = validated_data.pop("medical_specialty", None)
+        birth_date = validated_data.pop("birth_date", None)
+        passport_number = validated_data.pop("passport_number", None)
 
         user = User.objects.create_user(
             password=password,
@@ -205,11 +241,21 @@ class UserSerializer(serializers.ModelSerializer):
         if user.user_type == User.UserType.HOSPITAL:
             hospital = HospitalProfile.objects.create(
                 user=user,
-                **hospital_data,
+                **profile_data,
             )
             MedicalSpecialty.objects.create(
                 hospital=hospital,
                 specialty_name=specialty,
+            )
+
+        elif user.user_type == User.UserType.PATIENT:
+            PatientProfile.objects.create(
+                user=user,
+                address=profile_data.get("address", ""),
+                phone=profile_data.get("phone"),
+                birth_date=birth_date,
+                passport_number=passport_number,
+                residence_country="",
             )
 
         return user
@@ -277,6 +323,7 @@ class PatientProfileSerializer(
             "birth_date",
             "nationality",
             "phone",
+            "address",
             "residence_country",
         )
 

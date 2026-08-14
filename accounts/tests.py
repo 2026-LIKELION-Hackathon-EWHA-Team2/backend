@@ -5,7 +5,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from .models import HospitalProfile, MedicalSpecialty, User
+from .models import HospitalProfile, MedicalSpecialty, PatientProfile, User
 
 
 class HospitalSignUpTests(TestCase):
@@ -95,3 +95,73 @@ class HospitalSignUpTests(TestCase):
 
         self.assertFalse(User.objects.filter(username="seoul-medical").exists())
         self.assertFalse(HospitalProfile.objects.exists())
+
+
+class PatientSignUpTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.url = "/accounts/signup/"
+        self.payload = {
+            "name": "After Lee",
+            "login_id": "after123",
+            "password": "StrongPassword!123",
+            "user_type": User.UserType.PATIENT,
+            "address": "Tokyo, Japan",
+            "phone": "+81-3-1234-5678",
+            "birth_date": "2004-03-17",
+            "passport_number": "M12345678",
+            "terms_agreed": True,
+            "privacy_agreed": True,
+            "overseas_info_agreed": True,
+            "overseas_transfer_agreed": True,
+            "marketing_agreed": False,
+            "location_info_agreed": False,
+        }
+
+    def test_patient_signup_creates_profile_and_returns_id(self):
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username=self.payload["login_id"])
+        profile = PatientProfile.objects.get(user=user)
+        self.assertEqual(response.data["patient_profile_id"], profile.patient_id)
+        self.assertEqual(profile.address, self.payload["address"])
+        self.assertEqual(profile.phone, self.payload["phone"])
+        self.assertEqual(profile.passport_number, self.payload["passport_number"])
+        self.assertEqual(profile.birth_date.isoformat(), self.payload["birth_date"])
+
+    def test_missing_patient_fields_are_rejected(self):
+        for field in ("address", "phone", "birth_date", "passport_number"):
+            payload = self.payload.copy()
+            payload.pop(field)
+
+            response = self.client.post(self.url, payload, format="json")
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn(field, response.data)
+
+    def test_overseas_transfer_agreement_is_required(self):
+        self.payload["overseas_transfer_agreed"] = False
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("overseas_transfer_agreed", response.data)
+        self.assertFalse(User.objects.filter(username="after123").exists())
+
+    def test_optional_agreements_are_saved(self):
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username=self.payload["login_id"])
+        self.assertFalse(user.marketing_agreed)
+        self.assertFalse(user.location_info_agreed)
+
+    @patch("accounts.serializers.PatientProfile.objects.create")
+    def test_user_is_rolled_back_when_profile_creation_fails(self, create):
+        create.side_effect = RuntimeError("patient profile creation failed")
+
+        with self.assertRaises(RuntimeError):
+            self.client.post(self.url, self.payload, format="json")
+
+        self.assertFalse(User.objects.filter(username="after123").exists())

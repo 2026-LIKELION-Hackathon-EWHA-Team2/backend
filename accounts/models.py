@@ -30,6 +30,7 @@ class User(AbstractUser):
     terms_agreed = models.BooleanField(default=False)
     privacy_agreed = models.BooleanField(default=False)
     overseas_info_agreed = models.BooleanField(default=False)
+    overseas_transfer_agreed = models.BooleanField(default=False)
     location_info_agreed = models.BooleanField(default=False)
 
     # 선택 동의
@@ -68,6 +69,12 @@ class PatientProfile(models.Model):
         max_length=30,
         null=True,
         blank=True,
+    )
+
+    address = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
     )
 
     # 현재 기능에서는 사용하지 않음
