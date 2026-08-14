@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import HospitalProfile, MedicalSpecialty, PatientProfile, User
 
@@ -165,3 +166,82 @@ class PatientSignUpTests(TestCase):
             self.client.post(self.url, self.payload, format="json")
 
         self.assertFalse(User.objects.filter(username="after123").exists())
+
+
+class HospitalListSearchTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        patient_user = User.objects.create_user(
+            username="patient",
+            password="StrongPassword!123",
+            name="Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        access_token = RefreshToken.for_user(patient_user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.url = "/accounts/hospitals/"
+
+        tokyo_user = User.objects.create_user(
+            username="tokyo-hospital",
+            password="StrongPassword!123",
+            name="Tokyo Skin Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.tokyo_hospital = HospitalProfile.objects.create(
+            user=tokyo_user,
+            country="Japan",
+            city="Tokyo",
+            address="Shibuya 1-2-3",
+        )
+        MedicalSpecialty.objects.create(
+            hospital=self.tokyo_hospital,
+            specialty_name="Dermatology",
+        )
+
+        seoul_user = User.objects.create_user(
+            username="seoul-hospital",
+            password="StrongPassword!123",
+            name="Seoul Medical Center",
+            user_type=User.UserType.HOSPITAL,
+        )
+        HospitalProfile.objects.create(
+            user=seoul_user,
+            country="Korea",
+            city="Seoul",
+            address="Gangnam 4-5-6",
+        )
+
+    def test_searches_registered_hospitals_by_name(self):
+        response = self.client.get(self.url, {"search": "skin"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(
+            response.data[0]["hospital_id"],
+            self.tokyo_hospital.hospital_id,
+        )
+
+    def test_does_not_search_hospitals_by_specialty(self):
+        response = self.client.get(self.url, {"search": "dermatology"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_does_not_search_hospitals_by_location(self):
+        response = self.client.get(self.url, {"search": "shibuya"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_returns_all_hospitals_without_search_query(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+    def test_requires_authentication(self):
+        self.client.credentials()
+
+        response = self.client.get(self.url, {"search": "Tokyo"})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

@@ -96,10 +96,24 @@ class HospitalListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        search = request.query_params.get(
+            "search",
+            "",
+        ).strip()
+
         hospitals = (
             HospitalProfile.objects
             .select_related("user")
-            .all()
+            .prefetch_related("specialties")
+        )
+
+        if search:
+            hospitals = hospitals.filter(
+                user__name__icontains=search,
+            )
+
+        hospitals = (
+            hospitals
             .order_by("user__name")
         )
 
