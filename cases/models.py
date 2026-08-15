@@ -410,22 +410,7 @@ class CaseAgreement(models.Model):
 
     judgment_draft = models.TextField()
     evidence_items = models.JSONField(default=list)
-
-    observation_days = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-    )
-    photo_upload_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-    follow_up_date = models.DateField(
-        null=True,
-        blank=True,
-    )
-
-    precautions = models.TextField(blank=True, default="")
-    patient_message = models.TextField(blank=True, default="")
+    additional_opinion = models.TextField(blank=True, default="")
 
     status = models.CharField(
         max_length=20,
