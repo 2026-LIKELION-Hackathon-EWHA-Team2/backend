@@ -103,18 +103,13 @@ def generate_case_agreement(case_data, messages):
             '      "order": 1,\n'
             '      "label": "short UI badge label"\n'
             "    }\n"
-            "  ],\n"
-            '  "observation_days": null,\n'
-            '  "photo_upload_date": null,\n'
-            '  "follow_up_date": null,\n'
-            '  "precautions": "string",\n'
-            '  "patient_message": "string"\n'
+            "  ]\n"
             "}\n"
             "Evidence items may be an empty list when there is no "
             "explicit supporting evidence. The evidence label must be "
             "a short Korean UI badge such as 경미, 없음, or 권장. "
-            "Use null when an observation period, photo upload date, "
-            "or follow-up date was not explicitly agreed upon."
+            "Do not create an additional medical opinion; participating "
+            "doctors enter that separately."
         ),
     )
 
@@ -135,11 +130,6 @@ def generate_case_agreement(case_data, messages):
     required_fields = {
         "judgment_draft",
         "evidence_items",
-        "observation_days",
-        "photo_upload_date",
-        "follow_up_date",
-        "precautions",
-        "patient_message",
     }
 
     if not required_fields.issubset(agreement_data):

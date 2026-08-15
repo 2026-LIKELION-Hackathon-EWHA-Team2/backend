@@ -907,11 +907,6 @@ class CaseAgreementDetailView(APIView):
                 "judgment_draft",
                 "evidence_items",
                 "additional_opinion",
-                "observation_days",
-                "photo_upload_date",
-                "follow_up_date",
-                "precautions",
-                "patient_message",
             )
 
             changed_fields = [
@@ -923,12 +918,12 @@ class CaseAgreementDetailView(APIView):
             ]
 
             if not changed_fields:
-                return Response(
-                    CaseAgreementSerializer(
-                        agreement,
-                        context={"request": request},
-                    ).data
-                )
+                response_data = CaseAgreementSerializer(
+                    agreement,
+                    context={"request": request},
+                ).data
+                response_data["changed_fields"] = []
+                return Response(response_data)
 
             def date_value(value):
                 return (
@@ -1177,6 +1172,9 @@ class CaseAgreementGenerateView(APIView):
             raise ValidationError(
                 "AI 합의안 초안을 생성하지 못했습니다."
             )
+
+        # 추가 소견은 AI가 아니라 참여 의료진이 직접 작성합니다.
+        generated_data["additional_opinion"] = ""
 
         serializer = CaseAgreementSerializer(
             data=generated_data,

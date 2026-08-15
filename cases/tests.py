@@ -11,6 +11,7 @@ from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 from .models import (
     CaseAgreement,
     CaseAgreementReview,
+    CaseChatMessage,
     CaseChatRoom,
     MedicalCase,
     CaseAdverseEffect,
@@ -495,6 +496,13 @@ class CaseAgreementAPITests(APITestCase):
                 "room_id": self.chat_room.id,
             },
         )
+        self.generate_url = reverse(
+            "case-agreement-generate",
+            kwargs={
+                "case_id": self.medical_case.id,
+                "room_id": self.chat_room.id,
+            },
+        )
         self.revision_request_url = reverse(
             "case-agreement-revision-request",
             kwargs={
@@ -517,11 +525,6 @@ class CaseAgreementAPITests(APITestCase):
                     "order": 2,
                 },
             ],
-            "observation_days": 3,
-            "photo_upload_date": "2026-08-14",
-            "follow_up_date": "2026-08-21",
-            "precautions": "증상이 악화되면 병원에 방문하세요.",
-            "patient_message": "현재는 경과를 지켜봐 주세요.",
         }
 
     def create_agreement(self):
@@ -546,6 +549,9 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(response.data["version"], 1)
         self.assertEqual(response.data["additional_opinion"], "")
         self.assertIsNone(response.data["latest_edit"])
+        self.assertNotIn("follow_up_actions", response.data)
+        self.assertNotIn("precautions", response.data)
+        self.assertNotIn("patient_message", response.data)
 
     def test_final_content_and_evidence_are_editable(self):
         self.create_agreement()
@@ -625,6 +631,44 @@ class CaseAgreementAPITests(APITestCase):
         self.assertIsNotNone(
             detail_response.data["latest_edit"]["edited_at"],
         )
+
+    @patch("cases.views.generate_case_agreement")
+    def test_ai_generation_leaves_additional_opinion_empty(self, generate):
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="감염 징후는 없습니다.",
+        )
+        generate.return_value = {
+            "judgment_draft": "경과 관찰이 필요합니다.",
+            "evidence_items": [],
+            "additional_opinion": "AI가 생성하면 안 되는 내용",
+        }
+
+        self.client.force_authenticate(user=self.origin)
+        response = self.client.post(self.generate_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["additional_opinion"], "")
+
+    def test_unchanged_patch_returns_empty_changed_fields(self):
+        self.create_agreement()
+
+        response = self.client.patch(
+            self.detail_url,
+            {"judgment_draft": self.payload["judgment_draft"]},
+            format="json",
+        )
+
+        agreement = CaseAgreement.objects.get(
+            chat_room=self.chat_room,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["changed_fields"], [])
+        self.assertEqual(agreement.version, 1)
+        self.assertFalse(agreement.revisions.exists())
 
     def test_outside_hospital_cannot_read_agreement(self):
         self.create_agreement()
