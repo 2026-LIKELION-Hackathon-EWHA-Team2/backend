@@ -13,15 +13,46 @@ from .models import (
 )
 from .serializers import (
     HospitalProfileSerializer,
+    HospitalSignUpSerializer,
     PatientProfileSerializer,
+    PatientSignUpSerializer,
     UserLoginSerializer,
-    UserSerializer,
 )
 
 
-class SignUpView(APIView):
-    def post(self, request: HttpRequest, format=None):
-        serializer = UserSerializer(data=request.data)
+class PatientSignUpView(APIView):
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = PatientSignUpSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class HospitalSignUpView(APIView):
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = HospitalSignUpSerializer(
+            data=request.data
+        )
 
         if serializer.is_valid():
             serializer.save()
@@ -38,8 +69,14 @@ class SignUpView(APIView):
 
 
 class LoginView(APIView):
-    def post(self, request: HttpRequest, format=None):
-        serializer = UserLoginSerializer(data=request.data)
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = UserLoginSerializer(
+            data=request.data
+        )
 
         if serializer.is_valid():
             return Response(
@@ -54,21 +91,34 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-    def post(self, request: HttpRequest, format=None):
-        refresh_token = request.data.get("refresh")
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        refresh_token = request.data.get(
+            "refresh"
+        )
 
         if not refresh_token:
             return Response(
                 {
-                    "detail": "refresh token이 필요합니다."
+                    "detail": (
+                        "refresh token이 필요합니다."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            token = RefreshToken(refresh_token)
+            token = RefreshToken(
+                refresh_token
+            )
+
             token.blacklist()
 
             return Response(
@@ -319,7 +369,9 @@ class HospitalListView(APIView):
     GET /accounts/hospitals/
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated
+    ]
 
     def get(self, request):
         hospitals = (

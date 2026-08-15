@@ -13,7 +13,9 @@ class User(AbstractUser):
         JAPANESE = "ja", "日本語"
         CHINESE = "zh", "中文"
 
-    name = models.CharField(max_length=100)
+    name = models.CharField(
+        max_length=100,
+    )
 
     user_type = models.CharField(
         max_length=20,
@@ -27,12 +29,26 @@ class User(AbstractUser):
     )
 
     # 필수 동의
-    terms_agreed = models.BooleanField(default=False)
-    privacy_agreed = models.BooleanField(default=False)
-    overseas_info_agreed = models.BooleanField(default=False)
+    terms_agreed = models.BooleanField(
+        default=False,
+    )
+
+    privacy_agreed = models.BooleanField(
+        default=False,
+    )
+
+    overseas_info_agreed = models.BooleanField(
+        default=False,
+    )
 
     # 선택 동의
-    marketing_agreed = models.BooleanField(default=False)
+    marketing_agreed = models.BooleanField(
+        default=False,
+    )
+
+    location_info_agreed = models.BooleanField(
+        default=False,
+    )
 
 
 class PatientProfile(models.Model):
@@ -69,6 +85,12 @@ class PatientProfile(models.Model):
         blank=True,
     )
 
+    address = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+
     # 현재 기능에서는 사용하지 않음
     email = models.EmailField(
         null=True,
@@ -77,6 +99,8 @@ class PatientProfile(models.Model):
 
     residence_country = models.CharField(
         max_length=50,
+        null=True,
+        blank=True,
     )
 
     created_at = models.DateTimeField(
@@ -219,4 +243,3 @@ class MedicalSpecialty(models.Model):
             f"{self.hospital.user.name} "
             f"- {self.specialty_name}"
         )
-

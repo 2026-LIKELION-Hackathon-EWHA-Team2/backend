@@ -14,6 +14,11 @@ from .models import (
 )
 
 
+# =========================================================
+# 환자 프로필
+# =========================================================
+
+
 class PatientProfileSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         source="user.name",
@@ -30,6 +35,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "birth_date",
             "nationality",
             "phone",
+            "address",
             "residence_country",
         )
 
@@ -37,6 +43,11 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "patient_id",
             "name",
         )
+
+
+# =========================================================
+# 병원 진료과
+# =========================================================
 
 
 class MedicalSpecialtySerializer(serializers.ModelSerializer):
@@ -51,6 +62,11 @@ class MedicalSpecialtySerializer(serializers.ModelSerializer):
         read_only_fields = (
             "hospital_specialty_id",
         )
+
+
+# =========================================================
+# 병원 프로필
+# =========================================================
 
 
 class HospitalProfileSerializer(serializers.ModelSerializer):
@@ -92,7 +108,12 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
         )
 
 
-class UserSerializer(serializers.ModelSerializer):
+# =========================================================
+# 공통 회원가입
+# =========================================================
+
+
+class BaseSignUpSerializer(serializers.ModelSerializer):
     login_id = serializers.CharField(
         source="username",
         max_length=50,
@@ -128,14 +149,10 @@ class UserSerializer(serializers.ModelSerializer):
         default=False,
     )
 
-    patient_profile = PatientProfileSerializer(
-        required=False,
+    location_info_agreed = serializers.BooleanField(
         write_only=True,
-    )
-
-    hospital_profile = HospitalProfileSerializer(
         required=False,
-        write_only=True,
+        default=False,
     )
 
     class Meta:
@@ -146,14 +163,12 @@ class UserSerializer(serializers.ModelSerializer):
             "name",
             "login_id",
             "password",
-            "user_type",
             "terms_agreed",
             "privacy_agreed",
             "overseas_info_agreed",
             "marketing_agreed",
+            "location_info_agreed",
             "preferred_language",
-            "patient_profile",
-            "hospital_profile",
         )
 
         read_only_fields = (
@@ -178,33 +193,6 @@ class UserSerializer(serializers.ModelSerializer):
                 "해외 병원 정보 공유 동의는 필수입니다."
             )
 
-        user_type = attrs.get("user_type")
-
-        patient_profile = attrs.get("patient_profile")
-        hospital_profile = attrs.get("hospital_profile")
-
-        if user_type == User.UserType.PATIENT:
-            if not patient_profile:
-                errors["patient_profile"] = (
-                    "환자 프로필 정보가 필요합니다."
-                )
-
-            if hospital_profile:
-                errors["hospital_profile"] = (
-                    "환자 계정에는 병원 프로필을 등록할 수 없습니다."
-                )
-
-        elif user_type == User.UserType.HOSPITAL:
-            if not hospital_profile:
-                errors["hospital_profile"] = (
-                    "병원 프로필 정보가 필요합니다."
-                )
-
-            if patient_profile:
-                errors["patient_profile"] = (
-                    "병원 계정에는 환자 프로필을 등록할 수 없습니다."
-                )
-
         if errors:
             raise serializers.ValidationError(
                 errors
@@ -212,40 +200,190 @@ class UserSerializer(serializers.ModelSerializer):
 
         return attrs
 
+
+# =========================================================
+# 일반회원 회원가입
+# =========================================================
+
+
+class PatientSignUpSerializer(
+    BaseSignUpSerializer
+):
+    address = serializers.CharField(
+        max_length=255,
+        write_only=True,
+    )
+
+    phone = serializers.CharField(
+        max_length=30,
+        write_only=True,
+    )
+
+    birth_date = serializers.DateField(
+        write_only=True,
+    )
+
+    passport_number = serializers.CharField(
+        max_length=100,
+        write_only=True,
+    )
+
+    class Meta(BaseSignUpSerializer.Meta):
+        fields = (
+            *BaseSignUpSerializer.Meta.fields,
+            "address",
+            "phone",
+            "birth_date",
+            "passport_number",
+        )
+
     @transaction.atomic
     def create(self, validated_data):
+        address = validated_data.pop(
+            "address"
+        )
+
+        phone = validated_data.pop(
+            "phone"
+        )
+
+        birth_date = validated_data.pop(
+            "birth_date"
+        )
+
+        passport_number = validated_data.pop(
+            "passport_number"
+        )
+
         password = validated_data.pop(
             "password"
         )
 
-        patient_profile_data = validated_data.pop(
-            "patient_profile",
-            None,
+        user = User.objects.create_user(
+            password=password,
+            user_type=User.UserType.PATIENT,
+            **validated_data,
         )
 
-        hospital_profile_data = validated_data.pop(
-            "hospital_profile",
-            None,
+        PatientProfile.objects.create(
+            user=user,
+            address=address,
+            phone=phone,
+            birth_date=birth_date,
+            passport_number=passport_number,
+        )
+
+        return user
+
+
+# =========================================================
+# 병원회원 회원가입
+# =========================================================
+
+
+class HospitalSignUpSerializer(
+    BaseSignUpSerializer
+):
+    specialty_name = serializers.CharField(
+        max_length=100,
+        write_only=True,
+    )
+
+    country = serializers.CharField(
+        max_length=50,
+        write_only=True,
+    )
+
+    city = serializers.CharField(
+        max_length=100,
+        write_only=True,
+    )
+
+    address = serializers.CharField(
+        max_length=255,
+        write_only=True,
+    )
+
+    phone = serializers.CharField(
+        max_length=50,
+        write_only=True,
+    )
+
+    website = serializers.URLField(
+        max_length=500,
+        write_only=True,
+        required=False,
+        allow_blank=True,
+    )
+
+    class Meta(BaseSignUpSerializer.Meta):
+        fields = (
+            *BaseSignUpSerializer.Meta.fields,
+            "specialty_name",
+            "country",
+            "city",
+            "address",
+            "phone",
+            "website",
+        )
+
+    @transaction.atomic
+    def create(self, validated_data):
+        specialty_name = validated_data.pop(
+            "specialty_name"
+        )
+
+        country = validated_data.pop(
+            "country"
+        )
+
+        city = validated_data.pop(
+            "city"
+        )
+
+        address = validated_data.pop(
+            "address"
+        )
+
+        phone = validated_data.pop(
+            "phone"
+        )
+
+        website = validated_data.pop(
+            "website",
+            "",
+        )
+
+        password = validated_data.pop(
+            "password"
         )
 
         user = User.objects.create_user(
             password=password,
+            user_type=User.UserType.HOSPITAL,
             **validated_data,
         )
 
-        if user.user_type == User.UserType.PATIENT:
-            PatientProfile.objects.create(
-                user=user,
-                **patient_profile_data,
-            )
+        hospital = HospitalProfile.objects.create(
+            user=user,
+            country=country,
+            city=city,
+            address=address,
+            phone=phone,
+            website=website or None,
+        )
 
-        elif user.user_type == User.UserType.HOSPITAL:
-            HospitalProfile.objects.create(
-                user=user,
-                **hospital_profile_data,
-            )
+        MedicalSpecialty.objects.create(
+            hospital=hospital,
+            specialty_name=specialty_name,
+        )
 
         return user
+
+
+# =========================================================
+# 로그인
+# =========================================================
 
 
 class UserLoginSerializer(serializers.Serializer):
