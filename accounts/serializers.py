@@ -7,10 +7,10 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
-    User,
-    PatientProfile,
     HospitalProfile,
     MedicalSpecialty,
+    PatientProfile,
+    User,
 )
 
 
@@ -22,6 +22,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PatientProfile
+
         fields = (
             "patient_id",
             "name",
@@ -31,6 +32,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "phone",
             "residence_country",
         )
+
         read_only_fields = (
             "patient_id",
             "name",
@@ -40,10 +42,12 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 class MedicalSpecialtySerializer(serializers.ModelSerializer):
     class Meta:
         model = MedicalSpecialty
+
         fields = (
             "hospital_specialty_id",
             "specialty_name",
         )
+
         read_only_fields = (
             "hospital_specialty_id",
         )
@@ -62,6 +66,7 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HospitalProfile
+
         fields = (
             "hospital_id",
             "name",
@@ -79,6 +84,7 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
             "image_url",
             "specialties",
         )
+
         read_only_fields = (
             "hospital_id",
             "name",
@@ -104,9 +110,17 @@ class UserSerializer(serializers.ModelSerializer):
         validators=[validate_password],
     )
 
-    terms_agreed = serializers.BooleanField(write_only=True)
-    privacy_agreed = serializers.BooleanField(write_only=True)
-    overseas_info_agreed = serializers.BooleanField(write_only=True)
+    terms_agreed = serializers.BooleanField(
+        write_only=True,
+    )
+
+    privacy_agreed = serializers.BooleanField(
+        write_only=True,
+    )
+
+    overseas_info_agreed = serializers.BooleanField(
+        write_only=True,
+    )
 
     marketing_agreed = serializers.BooleanField(
         write_only=True,
@@ -126,6 +140,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
+
         fields = (
             "id",
             "name",
@@ -140,7 +155,10 @@ class UserSerializer(serializers.ModelSerializer):
             "patient_profile",
             "hospital_profile",
         )
-        read_only_fields = ("id",)
+
+        read_only_fields = (
+            "id",
+        )
 
     def validate(self, attrs):
         errors = {}
@@ -188,13 +206,17 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
         if errors:
-            raise serializers.ValidationError(errors)
+            raise serializers.ValidationError(
+                errors
+            )
 
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
-        password = validated_data.pop("password")
+        password = validated_data.pop(
+            "password"
+        )
 
         patient_profile_data = validated_data.pop(
             "patient_profile",
@@ -227,7 +249,9 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserLoginSerializer(serializers.Serializer):
-    login_id = serializers.CharField(max_length=50)
+    login_id = serializers.CharField(
+        max_length=50,
+    )
 
     password = serializers.CharField(
         max_length=128,
@@ -243,19 +267,28 @@ class UserLoginSerializer(serializers.Serializer):
         if user is None:
             raise serializers.ValidationError(
                 {
-                    "detail": "아이디 또는 비밀번호가 올바르지 않습니다."
+                    "detail": (
+                        "아이디 또는 비밀번호가 "
+                        "올바르지 않습니다."
+                    )
                 }
             )
 
-        refresh_token = RefreshToken.for_user(user)
+        refresh_token = RefreshToken.for_user(
+            user
+        )
 
         response_data = {
             "id": user.id,
             "name": user.name,
             "login_id": user.username,
             "user_type": user.user_type,
-            "access": str(refresh_token.access_token),
-            "refresh": str(refresh_token),
+            "access": str(
+                refresh_token.access_token
+            ),
+            "refresh": str(
+                refresh_token
+            ),
         }
 
         if user.user_type == User.UserType.PATIENT:

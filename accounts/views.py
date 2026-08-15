@@ -1,4 +1,5 @@
 from django.http import HttpRequest
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -6,12 +7,15 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import PatientProfile, HospitalProfile
+from .models import (
+    HospitalProfile,
+    PatientProfile,
+)
 from .serializers import (
-    UserSerializer,
-    UserLoginSerializer,
-    PatientProfileSerializer,
     HospitalProfileSerializer,
+    PatientProfileSerializer,
+    UserLoginSerializer,
+    UserSerializer,
 )
 
 
@@ -57,7 +61,9 @@ class LogoutView(APIView):
 
         if not refresh_token:
             return Response(
-                {"detail": "refresh token이 필요합니다."},
+                {
+                    "detail": "refresh token이 필요합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -66,14 +72,19 @@ class LogoutView(APIView):
             token.blacklist()
 
             return Response(
-                {"detail": "로그아웃되었습니다."},
+                {
+                    "detail": "로그아웃되었습니다."
+                },
                 status=status.HTTP_200_OK,
             )
 
         except TokenError:
             return Response(
                 {
-                    "detail": "유효하지 않거나 만료된 refresh token입니다."
+                    "detail": (
+                        "유효하지 않거나 만료된 "
+                        "refresh token입니다."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -85,7 +96,9 @@ class PatientProfileView(APIView):
     def get(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -94,11 +107,15 @@ class PatientProfileView(APIView):
 
         except PatientProfile.DoesNotExist:
             return Response(
-                {"detail": "환자 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "환자 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = PatientProfileSerializer(profile)
+        serializer = PatientProfileSerializer(
+            profile
+        )
 
         return Response(
             serializer.data,
@@ -108,13 +125,20 @@ class PatientProfileView(APIView):
     def post(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if hasattr(request.user, "patient_profile"):
+        if hasattr(
+            request.user,
+            "patient_profile",
+        ):
             return Response(
-                {"detail": "이미 환자 프로필이 존재합니다."},
+                {
+                    "detail": "이미 환자 프로필이 존재합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -140,7 +164,9 @@ class PatientProfileView(APIView):
     def patch(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -149,7 +175,9 @@ class PatientProfileView(APIView):
 
         except PatientProfile.DoesNotExist:
             return Response(
-                {"detail": "환자 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "환자 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -179,7 +207,9 @@ class HospitalProfileView(APIView):
     def get(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -188,11 +218,15 @@ class HospitalProfileView(APIView):
 
         except HospitalProfile.DoesNotExist:
             return Response(
-                {"detail": "병원 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "병원 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = HospitalProfileSerializer(profile)
+        serializer = HospitalProfileSerializer(
+            profile
+        )
 
         return Response(
             serializer.data,
@@ -202,13 +236,20 @@ class HospitalProfileView(APIView):
     def post(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if hasattr(request.user, "hospital_profile"):
+        if hasattr(
+            request.user,
+            "hospital_profile",
+        ):
             return Response(
-                {"detail": "이미 병원 프로필이 존재합니다."},
+                {
+                    "detail": "이미 병원 프로필이 존재합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -234,7 +275,9 @@ class HospitalProfileView(APIView):
     def patch(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -243,7 +286,9 @@ class HospitalProfileView(APIView):
 
         except HospitalProfile.DoesNotExist:
             return Response(
-                {"detail": "병원 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "병원 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -264,4 +309,33 @@ class HospitalProfileView(APIView):
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class HospitalListView(APIView):
+    """
+    회원가입된 병원 목록 조회 API
+
+    GET /accounts/hospitals/
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        hospitals = (
+            HospitalProfile.objects
+            .select_related("user")
+            .prefetch_related("specialties")
+            .all()
+            .order_by("user__name")
+        )
+
+        serializer = HospitalProfileSerializer(
+            hospitals,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
         )
