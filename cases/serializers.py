@@ -678,6 +678,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
     can_edit = serializers.SerializerMethodField()
     requires_re_review = serializers.SerializerMethodField()
     follow_up_actions = serializers.SerializerMethodField()
+    latest_edit = serializers.SerializerMethodField()
 
     revision_requested_by_name = serializers.CharField(
         source="revision_requested_by.name",
@@ -701,6 +702,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "patient_message",
             "status",
             "version",
+            "latest_edit",
             "edited_by_name",
             "edited_at",
             "finalized_at",
@@ -718,6 +720,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "chat_room",
             "status",
             "version",
+            "latest_edit",
             "edited_by_name",
             "edited_at",
             "finalized_at",
@@ -755,6 +758,17 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             )
 
         return sorted(items, key=lambda item: item["order"])
+
+    def get_latest_edit(self, obj):
+        if obj.edited_by_id is None or obj.edited_at is None:
+            return None
+
+        return {
+            "hospital_name": obj.edited_by.name,
+            "edited_at": serializers.DateTimeField().to_representation(
+                obj.edited_at
+            ),
+        }
 
     def validate(self, attrs):
         photo_date = attrs.get(

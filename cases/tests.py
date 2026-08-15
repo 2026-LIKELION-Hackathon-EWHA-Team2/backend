@@ -545,6 +545,7 @@ class CaseAgreementAPITests(APITestCase):
         )
         self.assertEqual(response.data["version"], 1)
         self.assertEqual(response.data["additional_opinion"], "")
+        self.assertIsNone(response.data["latest_edit"])
 
     def test_final_content_and_evidence_are_editable(self):
         self.create_agreement()
@@ -612,6 +613,17 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(
             response.data["changed_fields"],
             ["additional_opinion"],
+        )
+
+        detail_response = self.client.get(self.detail_url)
+
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            detail_response.data["latest_edit"]["hospital_name"],
+            self.origin.name,
+        )
+        self.assertIsNotNone(
+            detail_response.data["latest_edit"]["edited_at"],
         )
 
     def test_outside_hospital_cannot_read_agreement(self):
