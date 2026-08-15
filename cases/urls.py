@@ -6,16 +6,12 @@ from .views import (
     CaseAgreementReviewView,
     CaseAgreementRevisionListView,
     CaseAgreementRevisionRequestView,
-    AdverseEffectUpdateView,
     CaseChatMessageListCreateView,
     CaseCollaborationRequestAcceptView,
     CaseCollaborationRequestDetailView,
     CaseCollaborationRequestListView,
-    CaseTransferView,
     MedicalCaseDetailView,
-    MedicalCaseListCreateView,
-    CaseSyncRequestListCreateView,
-    CaseSyncRequestReviewView,
+    MedicalCaseListView,
     CaseTransferListCreateView,
     CaseTransferDetailView,
     CaseTransferReviewView,
@@ -28,8 +24,8 @@ from .views import (
 urlpatterns = [
     path(
         "",
-        MedicalCaseListCreateView.as_view(),
-        name="case-list-create",
+        MedicalCaseListView.as_view(),
+        name="case-list",
     ),
     path(
         "<int:case_id>/",
@@ -37,29 +33,9 @@ urlpatterns = [
         name="case-detail",
     ),
     path(
-        "<int:case_id>/adverse-effects/",
-        AdverseEffectUpdateView.as_view(),
-        name="case-adverse-effects",
-    ),
-    path(
-        "<int:case_id>/transfer/",
-        CaseTransferView.as_view(),
-        name="case-transfer",
-    ),
-    path(
     "<int:case_id>/chat/rooms/<int:room_id>/messages/",
     CaseChatMessageListCreateView.as_view(),
     name="case-chat-message-list-create",
-    ),
-    path(
-    "sync-requests/",
-    CaseSyncRequestListCreateView.as_view(),
-    name="case-sync-request-list-create",
-    ),
-    path(
-        "sync-requests/<int:sync_request_id>/review/",
-        CaseSyncRequestReviewView.as_view(),
-        name="case-sync-request-review",
     ),
     path(
     "collaboration-requests/",

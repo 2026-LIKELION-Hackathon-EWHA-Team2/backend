@@ -319,6 +319,7 @@ class PatientSymptomCaseSerializer(
             "diagnosed_hospital_name",
             "diagnosis_document_url",
             "diagnosis_analysis",
+            "status",
             "images",
             "created_at",
             "updated_at",

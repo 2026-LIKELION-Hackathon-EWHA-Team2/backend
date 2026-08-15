@@ -1,8 +1,10 @@
-from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from selfsymptoms.models import PatientSymptomCase
-from selfsymptoms.serializers import PatientSymptomCaseSerializer
+from matching.models import (
+    HospitalMatchRequest,
+    HospitalRecommendation,
+)
 
 from accounts.models import User
 from .models import (
@@ -11,7 +13,6 @@ from .models import (
     CaseAgreementRevision,
     CaseAdverseEffect,
     CaseIngredient,
-    CaseSyncRequest,
     CaseChatMessage,
     CaseCollaborationRequest,
     MedicalCase,
@@ -76,83 +77,6 @@ class CaseAdverseEffectSerializer(serializers.ModelSerializer):
             "effect_type",
             "effect_name",
         )
-
-
-class MedicalCaseCreateSerializer(serializers.ModelSerializer):
-    patient_id = serializers.PrimaryKeyRelatedField(
-        source="patient",
-        queryset=User.objects.filter(user_type="PATIENT"),
-        write_only=True,
-    )
-
-    # AI 매칭 결과로 전달받은 병원 ID
-    partner_hospital_id = serializers.PrimaryKeyRelatedField(
-        source="partner_hospital",
-        queryset=User.objects.filter(user_type="HOSPITAL"),
-        write_only=True,
-        required=False,
-        allow_null=True,
-    )
-
-    ingredients = serializers.ListField(
-        child=serializers.CharField(max_length=150),
-        allow_empty=False,
-        write_only=True,
-    )
-
-    class Meta:
-        model = MedicalCase
-        fields = (
-            "id",
-            "patient_id",
-            "partner_hospital_id",
-            "procedure_name",
-            "procedure_area",
-            "procedure_date",
-            "ingredients",
-            "clinician_note",
-        )
-        read_only_fields = ("id",)
-
-    def validate(self, attrs):
-        origin_hospital = self.context["request"].user
-        partner_hospital = attrs.get("partner_hospital")
-
-        if partner_hospital is None:
-            return attrs
-
-        if origin_hospital == partner_hospital:
-            raise serializers.ValidationError(
-                {
-                    "partner_hospital_id":
-                        "기존 병원과 협진 병원은 달라야 합니다."
-                }
-            )
-
-        # TODO: AI 매칭 기능과 연결한 뒤
-        # 실제로 수락된 병원인지 검증
-
-        return attrs
-
-    @transaction.atomic
-    def create(self, validated_data):
-        ingredient_names = validated_data.pop("ingredients")
-
-        medical_case = MedicalCase.objects.create(
-            **validated_data
-        )
-
-        CaseIngredient.objects.bulk_create(
-            [
-                CaseIngredient(
-                    medical_case=medical_case,
-                    ingredient_name=name,
-                )
-                for name in set(ingredient_names)
-            ]
-        )
-
-        return medical_case
 
 
 class MedicalCaseDetailSerializer(serializers.ModelSerializer):
@@ -239,6 +163,7 @@ class CaseCollaborationRequestSerializer(
     )
 
     chat_room_id = serializers.SerializerMethodField()
+    case_transfer_id = serializers.SerializerMethodField()
 
     class Meta:
         model = CaseCollaborationRequest
@@ -253,6 +178,7 @@ class CaseCollaborationRequestSerializer(
             "partner_hospital_name",
             "status",
             "chat_room_id",
+            "case_transfer_id",
             "requested_at",
             "accepted_at",
             "rejected_at",
@@ -271,108 +197,11 @@ class CaseCollaborationRequestSerializer(
 
         return room.id if room else None
 
+    def get_case_transfer_id(self, obj):
+        transfer = obj.medical_case.case_transfers.first()
+        return transfer.id if transfer else None
 
 
-
-class AdverseEffectUpdateSerializer(serializers.Serializer):
-    effect_types = serializers.ListField(
-        child=serializers.ChoiceField(
-            choices=CaseAdverseEffect.EffectType.choices,
-        ),
-        allow_empty=False,
-    )
-
-    def validate(self, attrs):
-        medical_case = self.context["medical_case"]
-
-        if medical_case.status == MedicalCase.Status.TRANSFERRED:
-            raise serializers.ValidationError(
-                {
-                    "detail": "이미 전송된 케이스는 수정할 수 없습니다."
-                }
-            )
-
-        return attrs
-
-    @transaction.atomic
-    def create(self, validated_data):
-        medical_case = self.context["medical_case"]
-
-        medical_case.adverse_effects.all().delete()
-
-        CaseAdverseEffect.objects.bulk_create(
-            [
-                CaseAdverseEffect(
-                    medical_case=medical_case,
-                    effect_type=effect_type,
-                )
-                for effect_type in set(
-                    validated_data["effect_types"]
-                )
-            ]
-        )
-
-        medical_case.status = (
-            MedicalCase.Status.READY_TO_TRANSFER
-        )
-        medical_case.save(update_fields=["status"])
-
-        return medical_case
-
-
-class CaseTransferSerializer(serializers.ModelSerializer):
-    procedure_info_agreed = serializers.BooleanField()
-    adverse_effect_info_agreed = serializers.BooleanField()
-    overseas_transfer_agreed = serializers.BooleanField()
-
-    class Meta:
-        model = MedicalCase
-        fields = (
-            "procedure_info_agreed",
-            "adverse_effect_info_agreed",
-            "overseas_transfer_agreed",
-        )
-
-    def validate(self, attrs):
-        errors = {}
-
-        if not attrs.get("procedure_info_agreed"):
-            errors["procedure_info_agreed"] = (
-                "시술 및 약물 정보 전송 동의는 필수입니다."
-            )
-
-        if not attrs.get("adverse_effect_info_agreed"):
-            errors["adverse_effect_info_agreed"] = (
-                "부작용 및 의료진 소견 전송 동의는 필수입니다."
-            )
-
-        if not attrs.get("overseas_transfer_agreed"):
-            errors["overseas_transfer_agreed"] = (
-                "국외 의료기관 정보 전송 동의는 필수입니다."
-            )
-
-        if (
-            self.instance.status
-            != MedicalCase.Status.READY_TO_TRANSFER
-        ):
-            errors["detail"] = (
-                "부작용 입력을 먼저 완료해야 합니다."
-            )
-
-        if errors:
-            raise serializers.ValidationError(errors)
-
-        return attrs
-
-    def update(self, instance, validated_data):
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-
-        instance.status = MedicalCase.Status.TRANSFERRED
-        instance.transferred_at = timezone.now()
-        instance.save()
-
-        return instance
 
 
 class CaseChatMessageSerializer(serializers.ModelSerializer):
@@ -476,193 +305,6 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
             )
 
         return value
-
-
-class CaseSyncRequestCreateSerializer(
-    serializers.ModelSerializer
-):
-    symptom_case_id = serializers.PrimaryKeyRelatedField(
-        source="symptom_case",
-        queryset=PatientSymptomCase.objects.all(),
-    )
-
-    origin_hospital_id = (
-        serializers.PrimaryKeyRelatedField(
-            source="origin_hospital",
-            queryset=User.objects.filter(
-                user_type=User.UserType.HOSPITAL,
-            ),
-        )
-    )
-
-    partner_hospital_id = (
-        serializers.PrimaryKeyRelatedField(
-            source="partner_hospital",
-            queryset=User.objects.filter(
-                user_type=User.UserType.HOSPITAL,
-            ),
-        )
-    )
-
-    class Meta:
-        model = CaseSyncRequest
-        fields = (
-            "id",
-            "patient_name",
-            "patient_gender",
-            "patient_birth_date",
-            "symptom_case_id",
-            "origin_hospital_id",
-            "partner_hospital_id",
-            "selection_source",
-        )
-        read_only_fields = ("id",)
-
-    def validate(self, attrs):
-        request = self.context["request"]
-        symptom_case = attrs["symptom_case"]
-        origin_hospital = attrs["origin_hospital"]
-        partner_hospital = attrs["partner_hospital"]
-
-        if request.user.user_type != User.UserType.PATIENT:
-            raise serializers.ValidationError(
-                "환자만 동기화를 요청할 수 있습니다."
-            )
-
-        if (
-            symptom_case.patient.user_id
-            != request.user.id
-        ):
-            raise serializers.ValidationError(
-                {
-                    "symptom_case_id": (
-                        "본인의 증상 케이스만 "
-                        "선택할 수 있습니다."
-                    )
-                }
-            )
-
-        if origin_hospital == partner_hospital:
-            raise serializers.ValidationError(
-                {
-                    "partner_hospital_id": (
-                        "시술 병원과 상대 병원은 "
-                        "달라야 합니다."
-                    )
-                }
-            )
-
-        duplicate_exists = (
-            CaseSyncRequest.objects.filter(
-                patient=request.user,
-                symptom_case=symptom_case,
-                status__in=[
-                    CaseSyncRequest.Status.REQUESTED,
-                    CaseSyncRequest.Status.HOSPITAL_REVIEWED,
-                    CaseSyncRequest.Status.PATIENT_CONSENTED,
-                    CaseSyncRequest.Status.SENT_TO_PARTNER,
-                ],
-            ).exists()
-        )
-
-        if duplicate_exists:
-            raise serializers.ValidationError(
-                "해당 증상에 대해 진행 중인 요청이 있습니다."
-            )
-
-        return attrs
-
-
-class CaseSyncRequestDetailSerializer(
-    serializers.ModelSerializer
-):
-    patient_id = serializers.IntegerField(
-        source="patient.id",
-        read_only=True,
-    )
-
-    symptom_case = PatientSymptomCaseSerializer(
-        read_only=True,
-    )
-
-    origin_hospital_id = serializers.IntegerField(
-        source="origin_hospital.id",
-        read_only=True,
-    )
-
-    origin_hospital_name = serializers.CharField(
-        source="origin_hospital.name",
-        read_only=True,
-    )
-
-    partner_hospital_id = serializers.IntegerField(
-        source="partner_hospital.id",
-        read_only=True,
-    )
-
-    partner_hospital_name = serializers.CharField(
-        source="partner_hospital.name",
-        read_only=True,
-    )
-
-    medical_case_id = serializers.IntegerField(
-        read_only=True,
-        allow_null=True,
-    )
-
-    class Meta:
-        model = CaseSyncRequest
-        fields = (
-            "id",
-            "patient_id",
-            "patient_name",
-            "patient_gender",
-            "patient_birth_date",
-            "symptom_case",
-            "origin_hospital_id",
-            "origin_hospital_name",
-            "partner_hospital_id",
-            "partner_hospital_name",
-            "medical_case_id",
-            "selection_source",
-            "status",
-            "reviewed_at",
-            "created_at",
-            "updated_at",
-        )
-
-
-class CaseCollaborationRequestDetailSerializer(
-    CaseCollaborationRequestSerializer
-):
-    sync_request = serializers.SerializerMethodField()
-
-    class Meta(
-        CaseCollaborationRequestSerializer.Meta
-    ):
-        fields = (
-            CaseCollaborationRequestSerializer
-            .Meta
-            .fields
-            + (
-                "sync_request",
-            )
-        )
-
-        read_only_fields = fields
-
-    def get_sync_request(self, obj):
-        try:
-            sync_request = (
-                obj.medical_case.sync_request
-            )
-        except CaseSyncRequest.DoesNotExist:
-            return None
-
-        return CaseSyncRequestDetailSerializer(
-            sync_request,
-            context=self.context,
-        ).data
 
 
 class EvidenceItemSerializer(serializers.Serializer):
@@ -841,11 +483,13 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
             "diagnosed_hospital__user",
         ),
     )
-    partner_hospital_id = serializers.PrimaryKeyRelatedField(
-        source="partner_hospital",
-        queryset=User.objects.filter(
-            user_type=User.UserType.HOSPITAL,
-        ).select_related("hospital_profile"),
+    recommendation_id = serializers.PrimaryKeyRelatedField(
+        source="recommendation",
+        queryset=HospitalRecommendation.objects.select_related(
+            "hospital__user",
+            "match_request__patient__user",
+            "match_request__symptom_case",
+        ),
     )
 
     class Meta:
@@ -853,7 +497,7 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "symptom_case_id",
-            "partner_hospital_id",
+            "recommendation_id",
             "patient_name",
             "patient_gender",
             "patient_birth_date",
@@ -863,7 +507,8 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context["request"]
         symptom_case = attrs["symptom_case"]
-        partner_hospital = attrs["partner_hospital"]
+        recommendation = attrs["recommendation"]
+        partner_hospital = recommendation.hospital.user
 
         if request.user.user_type != User.UserType.PATIENT:
             raise serializers.ValidationError(
@@ -875,6 +520,46 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
                 "본인의 증상 케이스만 선택할 수 있습니다."
             )
 
+        if (
+            symptom_case.status
+            != PatientSymptomCase.Status.HOSPITAL_SELECTED
+        ):
+            raise serializers.ValidationError(
+                "병원 선택이 완료된 증상 케이스만 전송할 수 있습니다."
+            )
+
+        if (
+            recommendation.match_request.symptom_case_id
+            != symptom_case.symptom_case_id
+            or recommendation.match_request.patient.user_id
+            != request.user.id
+        ):
+            raise serializers.ValidationError(
+                {
+                    "recommendation_id": (
+                        "해당 증상 케이스의 추천 결과가 아닙니다."
+                    )
+                }
+            )
+
+        if (
+            not recommendation.is_selected
+            or recommendation.match_request.status
+            != HospitalMatchRequest.Status.SELECTED
+        ):
+            raise serializers.ValidationError(
+                {
+                    "recommendation_id": (
+                        "환자가 선택한 추천 병원만 전송할 수 있습니다."
+                    )
+                }
+            )
+
+        if CaseTransfer.objects.filter(symptom_case=symptom_case).exists():
+            raise serializers.ValidationError(
+                "해당 증상 케이스의 전송 건이 이미 존재합니다."
+            )
+
         if not symptom_case.diagnosis_document:
             raise serializers.ValidationError(
                 "진단서가 등록된 증상 케이스만 전송할 수 있습니다."
@@ -883,11 +568,6 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
         if symptom_case.diagnosed_hospital is None:
             raise serializers.ValidationError(
                 "시술받은 병원을 먼저 선택해주세요."
-            )
-
-        if not hasattr(partner_hospital, "hospital_profile"):
-            raise serializers.ValidationError(
-                "협진 병원의 프로필 정보가 없습니다."
             )
 
         if (
@@ -901,7 +581,8 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        partner_hospital = validated_data["partner_hospital"]
+        recommendation = validated_data["recommendation"]
+        partner_hospital = recommendation.hospital.user
         validated_data.setdefault(
             "status",
             CaseTransfer.Status.PROCESSING,
@@ -910,10 +591,9 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
         return CaseTransfer.objects.create(
             **validated_data,
             patient=self.context["request"].user,
+            partner_hospital=partner_hospital,
             target_language=(
-                partner_hospital
-                .hospital_profile
-                .language_code
+                recommendation.hospital.language_code
             ),
         )
 
@@ -921,6 +601,7 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
 class CaseTransferDetailSerializer(serializers.ModelSerializer):
     case_number = serializers.SerializerMethodField()
     symptom_case_id = serializers.IntegerField(read_only=True)
+    recommendation_id = serializers.IntegerField(read_only=True)
     medical_case_id = serializers.IntegerField(read_only=True)
     partner_hospital_id = serializers.IntegerField(read_only=True)
     partner_hospital_name = serializers.CharField(
@@ -942,6 +623,7 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
             "id",
             "case_number",
             "symptom_case_id",
+            "recommendation_id",
             "medical_case_id",
             "partner_hospital_id",
             "partner_hospital_name",
@@ -1005,6 +687,7 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
             "id",
             "case_number",
             "symptom_case_id",
+            "recommendation_id",
             "medical_case_id",
             "partner_hospital_id",
             "partner_hospital_name",
