@@ -960,12 +960,13 @@ class CaseAgreementDetailView(APIView):
             # 수정되면 양측의 기존 검토를 모두 무효화합니다.
             agreement.reviews.all().delete()
 
-        return Response(
-            CaseAgreementSerializer(
-                agreement,
-                context={"request": request},
-            ).data
-        )
+        response_data = CaseAgreementSerializer(
+            agreement,
+            context={"request": request},
+        ).data
+        response_data["changed_fields"] = changed_fields
+
+        return Response(response_data)
 
 class CaseAgreementReviewView(APIView):
     permission_classes = [IsAuthenticated]
