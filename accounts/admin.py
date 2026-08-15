@@ -83,5 +83,6 @@ class MedicalSpecialtyAdmin(admin.ModelAdmin):
     list_display = (
         "hospital_specialty_id",
         "hospital",
+        "specialty_code",
         "specialty_name",
     )

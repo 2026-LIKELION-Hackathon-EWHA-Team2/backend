@@ -95,9 +95,9 @@ def analyze_required_specialty(
 
     available_specialties = list(
         MedicalSpecialty.objects
-        .values_list(
+        .values(
+            "specialty_code",
             "specialty_name",
-            flat=True,
         )
         .distinct()
     )
@@ -105,9 +105,14 @@ def analyze_required_specialty(
     if not available_specialties:
         return None
 
-    specialty_list = "\n".join(
-        f"- {specialty}"
+    available_specialty_names = [
+        specialty["specialty_name"]
         for specialty in available_specialties
+    ]
+
+    specialty_list = "\n".join(
+        f"- {specialty_name}"
+        for specialty_name in available_specialty_names
     )
 
     prompt = f"""
@@ -173,8 +178,17 @@ def analyze_required_specialty(
 
     if (
         required_specialty
-        not in available_specialties
+        not in available_specialty_names
     ):
         return None
 
-    return required_specialty
+    selected_specialty = next(
+        specialty
+        for specialty in available_specialties
+        if specialty["specialty_name"] == required_specialty
+    )
+
+    return {
+        "specialty_code": selected_specialty["specialty_code"],
+        "specialty_name": selected_specialty["specialty_name"],
+    }

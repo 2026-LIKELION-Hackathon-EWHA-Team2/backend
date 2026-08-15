@@ -12,6 +12,13 @@ from .models import (
     PatientProfile,
     User,
 )
+from .specialties import (
+    MAX_SPECIALTY_SELECTIONS,
+    SpecialtyCode,
+    get_specialty_code_for_name,
+    get_specialty_name,
+    normalize_specialty_name,
+)
 
 
 # =========================================================
@@ -51,17 +58,86 @@ class PatientProfileSerializer(serializers.ModelSerializer):
 
 
 class MedicalSpecialtySerializer(serializers.ModelSerializer):
+    is_custom = serializers.SerializerMethodField()
+
     class Meta:
         model = MedicalSpecialty
 
         fields = (
             "hospital_specialty_id",
+            "specialty_code",
             "specialty_name",
+            "is_custom",
         )
 
         read_only_fields = (
             "hospital_specialty_id",
+            "specialty_code",
+            "specialty_name",
+            "is_custom",
         )
+
+    def get_is_custom(self, obj):
+        return obj.specialty_code == SpecialtyCode.CUSTOM
+
+
+class HospitalSignUpSpecialtySerializer(serializers.Serializer):
+    specialty_code = serializers.ChoiceField(
+        choices=SpecialtyCode.choices,
+    )
+    specialty_name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        specialty_code = attrs["specialty_code"]
+        specialty_name = attrs.get("specialty_name", "")
+
+        if specialty_code == SpecialtyCode.CUSTOM:
+            if not specialty_name:
+                raise serializers.ValidationError(
+                    {
+                        "specialty_name": (
+                            "직접 추가한 전문 분야명을 입력해 주세요."
+                        )
+                    }
+                )
+
+            matched_code = get_specialty_code_for_name(
+                specialty_name
+            )
+            if matched_code != SpecialtyCode.CUSTOM:
+                raise serializers.ValidationError(
+                    {
+                        "specialty_name": (
+                            "기본 전문 분야는 해당 분야 코드로 선택해 주세요."
+                        )
+                    }
+                )
+        else:
+            canonical_name = get_specialty_name(specialty_code)
+            if (
+                specialty_name
+                and normalize_specialty_name(specialty_name)
+                != normalize_specialty_name(canonical_name)
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "specialty_name": (
+                            "전문 분야 코드와 이름이 일치하지 않습니다."
+                        )
+                    }
+                )
+            specialty_name = canonical_name
+
+        attrs["specialty_name"] = get_specialty_name(
+            specialty_code,
+            specialty_name,
+        )
+        return attrs
 
 
 # =========================================================
@@ -284,8 +360,17 @@ class PatientSignUpSerializer(
 class HospitalSignUpSerializer(
     BaseSignUpSerializer
 ):
+    specialties = HospitalSignUpSpecialtySerializer(
+        many=True,
+        required=False,
+        allow_empty=False,
+        max_length=MAX_SPECIALTY_SELECTIONS,
+        write_only=True,
+    )
+
     specialty_name = serializers.CharField(
         max_length=100,
+        required=False,
         write_only=True,
     )
 
@@ -319,6 +404,7 @@ class HospitalSignUpSerializer(
     class Meta(BaseSignUpSerializer.Meta):
         fields = (
             *BaseSignUpSerializer.Meta.fields,
+            "specialties",
             "specialty_name",
             "country",
             "city",
@@ -327,11 +413,63 @@ class HospitalSignUpSerializer(
             "website",
         )
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        specialties = attrs.get("specialties")
+        legacy_specialty_name = attrs.get("specialty_name")
+
+        if specialties and legacy_specialty_name:
+            raise serializers.ValidationError(
+                {
+                    "specialties": (
+                        "specialties와 specialty_name을 함께 보낼 수 없습니다."
+                    )
+                }
+            )
+
+        if not specialties and not legacy_specialty_name:
+            raise serializers.ValidationError(
+                {
+                    "specialties": (
+                        "전문 분야를 한 개 이상 선택해 주세요."
+                    )
+                }
+            )
+
+        if legacy_specialty_name:
+            specialty_code = get_specialty_code_for_name(
+                legacy_specialty_name
+            )
+            specialties = [
+                {
+                    "specialty_code": specialty_code,
+                    "specialty_name": get_specialty_name(
+                        specialty_code,
+                        legacy_specialty_name,
+                    ),
+                }
+            ]
+            attrs["specialties"] = specialties
+
+        normalized_names = [
+            normalize_specialty_name(item["specialty_name"])
+            for item in specialties
+        ]
+        if len(normalized_names) != len(set(normalized_names)):
+            raise serializers.ValidationError(
+                {
+                    "specialties": (
+                        "같은 전문 분야를 중복 선택할 수 없습니다."
+                    )
+                }
+            )
+
+        return attrs
+
     @transaction.atomic
     def create(self, validated_data):
-        specialty_name = validated_data.pop(
-            "specialty_name"
-        )
+        specialties = validated_data.pop("specialties")
+        validated_data.pop("specialty_name", None)
 
         country = validated_data.pop(
             "country"
@@ -373,9 +511,15 @@ class HospitalSignUpSerializer(
             website=website or None,
         )
 
-        MedicalSpecialty.objects.create(
-            hospital=hospital,
-            specialty_name=specialty_name,
+        MedicalSpecialty.objects.bulk_create(
+            [
+                MedicalSpecialty(
+                    hospital=hospital,
+                    specialty_code=item["specialty_code"],
+                    specialty_name=item["specialty_name"],
+                )
+                for item in specialties
+            ]
         )
 
         return user
