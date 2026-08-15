@@ -830,8 +830,16 @@ class CaseTransferDocumentFlowTests(APITestCase):
         )
         self.client.force_authenticate(user=self.patient)
 
+    @patch("cases.views.generate_patient_symptom_translation_summary")
     @patch("cases.views.analyze_diagnosis_document")
-    def test_transfer_is_created_from_diagnosis_document(self, analyze):
+    def test_transfer_is_created_from_diagnosis_document(
+        self,
+        analyze,
+        generate_summary,
+    ):
+        generate_summary.return_value = (
+            "額の腫れと痛みが報告されています。経過観察中です。"
+        )
         analyze.return_value = {
             "extracted_text": "diagnosis text",
             "symptoms": {
@@ -873,12 +881,35 @@ class CaseTransferDocumentFlowTests(APITestCase):
             transfer.structured_data["symptoms"]["description"],
             "Translated swelling and pain",
         )
+        self.assertEqual(
+            transfer.medical_case.ai_summary,
+            "額の腫れと痛みが報告されています。経過観察中です。",
+        )
+        self.assertEqual(
+            response.data["ai_translation_summary"],
+            transfer.medical_case.ai_summary,
+        )
+        self.assertNotIn(
+            "collaboration_reason",
+            response.data,
+        )
         self.assertTrue(
             DiagnosisAnalysis.objects.filter(
                 symptom_case=self.symptom_case,
             ).exists()
         )
         analyze.assert_called_once()
+        generate_summary.assert_called_once_with(
+            {
+                "description": "Swelling and pain",
+                "start_date": "2026-08-10",
+                "onset_timing": None,
+                "pain_level": 3,
+                "areas": [],
+                "types": [],
+            },
+            "ja",
+        )
 
     def test_transfer_requires_diagnosis_document(self):
         self.symptom_case.diagnosis_document = None

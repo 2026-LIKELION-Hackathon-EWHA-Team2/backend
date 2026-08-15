@@ -35,6 +35,7 @@ from .models import (
 from .services import (
     analyze_diagnosis_document,
     generate_case_agreement,
+    generate_patient_symptom_translation_summary,
     translate_medical_message,
 )
 
@@ -1291,6 +1292,18 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        try:
+            ai_summary = generate_patient_symptom_translation_summary(
+                symptom_data,
+                partner_hospital.hospital_profile.language_code,
+            )
+        except Exception as exc:
+            logger.exception("Case translation summary generation failed")
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         structured_data = {
             "patient_info": {
                 "name": serializer.validated_data["patient_name"],
@@ -1311,6 +1324,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             "procedure": procedure,
             "ingredients": document_result["ingredients"],
             "clinician_note": document_result["clinician_note"],
+            "ai_summary": ai_summary,
         }
 
         with transaction.atomic():
@@ -1339,6 +1353,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 procedure_area=procedure["area"],
                 procedure_date=procedure_date,
                 clinician_note=document_result["clinician_note"],
+                ai_summary=ai_summary,
                 status=MedicalCase.Status.READY_TO_TRANSFER,
             )
 
