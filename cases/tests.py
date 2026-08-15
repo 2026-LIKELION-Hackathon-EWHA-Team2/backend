@@ -544,6 +544,75 @@ class CaseAgreementAPITests(APITestCase):
             CaseAgreement.Status.AI_DRAFT,
         )
         self.assertEqual(response.data["version"], 1)
+        self.assertEqual(response.data["additional_opinion"], "")
+
+    def test_final_content_and_evidence_are_editable(self):
+        self.create_agreement()
+
+        updated_evidence = [
+            {
+                "id": "evidence-updated",
+                "content": "No signs of infection were observed.",
+                "order": 1,
+            },
+        ]
+        response = self.client.patch(
+            self.detail_url,
+            {
+                "judgment_draft": "Additional follow-up is recommended.",
+                "evidence_items": updated_evidence,
+            },
+            format="json",
+        )
+
+        agreement = CaseAgreement.objects.get(
+            chat_room=self.chat_room,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            agreement.judgment_draft,
+            "Additional follow-up is recommended.",
+        )
+        self.assertEqual(
+            agreement.evidence_items[0]["content"],
+            "No signs of infection were observed.",
+        )
+        self.assertEqual(
+            response.data["changed_fields"],
+            ["judgment_draft", "evidence_items"],
+        )
+
+    def test_doctor_can_write_additional_opinion(self):
+        self.create_agreement()
+
+        response = self.client.patch(
+            self.detail_url,
+            {
+                "additional_opinion": (
+                    "Monitor the patient for one more week."
+                ),
+            },
+            format="json",
+        )
+
+        agreement = CaseAgreement.objects.get(
+            chat_room=self.chat_room,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            agreement.additional_opinion,
+            "Monitor the patient for one more week.",
+        )
+        self.assertEqual(
+            response.data["additional_opinion"],
+            "Monitor the patient for one more week.",
+        )
+        self.assertEqual(
+            response.data["changed_fields"],
+            ["additional_opinion"],
+        )
 
     def test_outside_hospital_cannot_read_agreement(self):
         self.create_agreement()

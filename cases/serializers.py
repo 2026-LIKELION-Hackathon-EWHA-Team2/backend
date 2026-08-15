@@ -692,6 +692,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "chat_room",
             "judgment_draft",
             "evidence_items",
+            "additional_opinion",
             "observation_days",
             "photo_upload_date",
             "follow_up_date",

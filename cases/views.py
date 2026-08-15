@@ -906,6 +906,7 @@ class CaseAgreementDetailView(APIView):
             editable_fields = (
                 "judgment_draft",
                 "evidence_items",
+                "additional_opinion",
                 "observation_days",
                 "photo_upload_date",
                 "follow_up_date",
