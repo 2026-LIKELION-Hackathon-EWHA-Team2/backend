@@ -182,6 +182,7 @@ class CaseCollaborationRequestSerializer(
             "requested_at",
             "accepted_at",
             "rejected_at",
+            "completed_at",
             "created_at",
             "updated_at",
         )

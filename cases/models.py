@@ -113,6 +113,7 @@ class CaseCollaborationRequest(models.Model):
     class Status(models.TextChoices):
         REQUESTED = "REQUESTED", "협진 요청"
         ACCEPTED = "ACCEPTED", "협진 수락"
+        COMPLETED = "COMPLETED", "협진 완료"
         REJECTED = "REJECTED", "협진 거절"
         CANCELLED = "CANCELLED", "협진 취소"
 
@@ -138,6 +139,11 @@ class CaseCollaborationRequest(models.Model):
     )
 
     rejected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    completed_at = models.DateTimeField(
         null=True,
         blank=True,
     )

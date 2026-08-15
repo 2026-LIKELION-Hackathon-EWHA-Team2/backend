@@ -351,6 +351,7 @@ class CaseCollaborationRequestListView(
     ALLOWED_STATUSES = {
         CaseCollaborationRequest.Status.REQUESTED,
         CaseCollaborationRequest.Status.ACCEPTED,
+        CaseCollaborationRequest.Status.COMPLETED,
     }
 
     def get_queryset(self):
@@ -372,7 +373,8 @@ class CaseCollaborationRequestListView(
                 {
                     "status": (
                         "현재 조회 가능한 상태는 "
-                        "REQUESTED 또는 ACCEPTED입니다."
+                        "REQUESTED, ACCEPTED 또는 "
+                        "COMPLETED입니다."
                     )
                 }
             )
@@ -530,7 +532,9 @@ class CaseCollaborationRequestAcceptView(APIView):
         )
         if transfer is not None:
             symptom_case = transfer.symptom_case
-            symptom_case.status = symptom_case.Status.COMPLETED
+            symptom_case.status = (
+                symptom_case.Status.IN_COLLABORATION
+            )
             symptom_case.save(
                 update_fields=["status", "updated_at"]
             )
@@ -737,10 +741,44 @@ class CaseAgreementReviewView(APIView):
             )
 
             if reviewed_ids == participant_ids:
+                completed_at = timezone.now()
                 agreement.status = CaseAgreement.Status.FINAL
-                agreement.finalized_at = timezone.now()
+                agreement.finalized_at = completed_at
                 agreement.revision_requested_by = None
                 agreement.revision_requested_at = None
+
+                collaboration_request = (
+                    CaseCollaborationRequest.objects
+                    .filter(medical_case=chat_room.medical_case)
+                    .first()
+                )
+                if collaboration_request is not None:
+                    collaboration_request.status = (
+                        CaseCollaborationRequest.Status.COMPLETED
+                    )
+                    collaboration_request.completed_at = completed_at
+                    collaboration_request.save(
+                        update_fields=(
+                            "status",
+                            "completed_at",
+                            "updated_at",
+                        )
+                    )
+
+                transfer = (
+                    chat_room.medical_case.case_transfers
+                    .select_related("symptom_case")
+                    .filter(status=CaseTransfer.Status.TRANSFERRED)
+                    .first()
+                )
+                if transfer is not None:
+                    symptom_case = transfer.symptom_case
+                    symptom_case.status = (
+                        symptom_case.Status.COMPLETED
+                    )
+                    symptom_case.save(
+                        update_fields=["status", "updated_at"]
+                    )
             else:
                 agreement.status = CaseAgreement.Status.IN_REVIEW
 
@@ -798,6 +836,39 @@ class CaseAgreementRevisionRequestView(APIView):
                     "updated_at",
                 )
             )
+
+            collaboration_request = (
+                CaseCollaborationRequest.objects
+                .filter(medical_case=chat_room.medical_case)
+                .first()
+            )
+            if collaboration_request is not None:
+                collaboration_request.status = (
+                    CaseCollaborationRequest.Status.ACCEPTED
+                )
+                collaboration_request.completed_at = None
+                collaboration_request.save(
+                    update_fields=(
+                        "status",
+                        "completed_at",
+                        "updated_at",
+                    )
+                )
+
+            transfer = (
+                chat_room.medical_case.case_transfers
+                .select_related("symptom_case")
+                .filter(status=CaseTransfer.Status.TRANSFERRED)
+                .first()
+            )
+            if transfer is not None:
+                symptom_case = transfer.symptom_case
+                symptom_case.status = (
+                    symptom_case.Status.IN_COLLABORATION
+                )
+                symptom_case.save(
+                    update_fields=["status", "updated_at"]
+                )
 
         return Response(
             CaseAgreementSerializer(
@@ -953,26 +1024,9 @@ class CaseAgreementGenerateView(APIView):
         )
 
 
-class CaseTransferListCreateView(generics.ListCreateAPIView):
+class CaseTransferListCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return CaseTransferCreateSerializer
-        return CaseTransferDetailSerializer
-
-    def get_queryset(self):
-        return (
-            CaseTransfer.objects
-            .filter(patient=self.request.user)
-            .select_related(
-                "patient",
-                "partner_hospital",
-                "symptom_case",
-                "medical_case",
-            )
-            .order_by("-created_at")
-        )
+    serializer_class = CaseTransferCreateSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

@@ -447,7 +447,17 @@ class CaseTransferFlowTests(APITestCase):
         )
         self.assertEqual(CaseTransfer.objects.count(), 1)
 
-    def test_review_send_and_accept_complete_symptom_flow(self):
+    def test_patient_transfer_list_endpoint_is_not_exposed(self):
+        response = self.client.get(
+            reverse("case-transfer-list-create"),
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def test_symptom_completes_only_after_final_agreement(self):
         create_response = self.create_transfer()
         transfer_id = create_response.data["id"]
 
@@ -494,14 +504,90 @@ class CaseTransferFlowTests(APITestCase):
         )
 
         self.assertEqual(accept_response.status_code, status.HTTP_200_OK)
+        collaboration_request.refresh_from_db()
         self.symptom_case.refresh_from_db()
+        self.assertEqual(
+            self.symptom_case.status,
+            PatientSymptomCase.Status.IN_COLLABORATION,
+        )
+        self.assertEqual(
+            collaboration_request.status,
+            CaseCollaborationRequest.Status.ACCEPTED,
+        )
+
+        chat_room_id = accept_response.data["chat_room_id"]
+        agreement_kwargs = {
+            "case_id": collaboration_request.medical_case_id,
+            "room_id": chat_room_id,
+        }
+        agreement_response = self.client.post(
+            reverse("case-agreement-detail", kwargs=agreement_kwargs),
+            {
+                "judgment_draft": "경과 관찰이 필요합니다.",
+                "evidence_items": [],
+                "additional_opinion": "증상 악화 시 내원 바랍니다.",
+            },
+            format="json",
+        )
+        self.assertEqual(
+            agreement_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        review_url = reverse(
+            "case-agreement-review",
+            kwargs=agreement_kwargs,
+        )
+        first_review = self.client.post(review_url, format="json")
+        self.assertEqual(
+            first_review.data["status"],
+            CaseAgreement.Status.IN_REVIEW,
+        )
+        self.symptom_case.refresh_from_db()
+        self.assertEqual(
+            self.symptom_case.status,
+            PatientSymptomCase.Status.IN_COLLABORATION,
+        )
+
+        self.client.force_authenticate(user=self.origin)
+        final_review = self.client.post(review_url, format="json")
+        self.assertEqual(
+            final_review.data["status"],
+            CaseAgreement.Status.FINAL,
+        )
+
+        collaboration_request.refresh_from_db()
+        self.symptom_case.refresh_from_db()
+        self.assertEqual(
+            collaboration_request.status,
+            CaseCollaborationRequest.Status.COMPLETED,
+        )
+        self.assertIsNotNone(collaboration_request.completed_at)
         self.assertEqual(
             self.symptom_case.status,
             PatientSymptomCase.Status.COMPLETED,
         )
-        self.assertTrue(
-            CaseChatRoom.objects.filter(
-                medical_case=collaboration_request.medical_case,
-                partner_hospital=self.partner,
-            ).exists()
+
+        revision_response = self.client.post(
+            reverse(
+                "case-agreement-revision-request",
+                kwargs=agreement_kwargs,
+            ),
+            format="json",
+        )
+        self.assertEqual(
+            revision_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        collaboration_request.refresh_from_db()
+        self.symptom_case.refresh_from_db()
+        self.assertEqual(
+            collaboration_request.status,
+            CaseCollaborationRequest.Status.ACCEPTED,
+        )
+        self.assertIsNone(collaboration_request.completed_at)
+        self.assertEqual(
+            self.symptom_case.status,
+            PatientSymptomCase.Status.IN_COLLABORATION,
         )

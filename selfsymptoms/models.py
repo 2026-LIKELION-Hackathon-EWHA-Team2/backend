@@ -20,6 +20,7 @@ class PatientSymptomCase(models.Model):
         MATCHING = "MATCHING", "병원 매칭 중"
         HOSPITAL_SELECTED = "HOSPITAL_SELECTED", "병원 선택 완료"
         CONNECTION_REQUESTED = "CONNECTION_REQUESTED", "연결 요청 완료"
+        IN_COLLABORATION = "IN_COLLABORATION", "협진 진행 중"
         COMPLETED = "COMPLETED", "완료"
         CANCELLED = "CANCELLED", "취소"
 
