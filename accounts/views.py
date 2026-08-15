@@ -1,7 +1,7 @@
 from django.http import HttpRequest
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -18,6 +18,29 @@ from .serializers import (
     PatientSignUpSerializer,
     UserLoginSerializer,
 )
+from .specialties import MAX_SPECIALTY_SELECTIONS, SpecialtyCode
+
+
+class MedicalSpecialtyOptionsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(
+            {
+                "specialties": [
+                    {
+                        "specialty_code": code,
+                        "specialty_name": label,
+                        "requires_custom_name": (
+                            code == SpecialtyCode.CUSTOM
+                        ),
+                    }
+                    for code, label in SpecialtyCode.choices
+                ],
+                "max_selections": MAX_SPECIALTY_SELECTIONS,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class PatientSignUpView(APIView):
@@ -374,13 +397,23 @@ class HospitalListView(APIView):
     ]
 
     def get(self, request):
+        search = request.query_params.get(
+            "search",
+            "",
+        ).strip()
+
         hospitals = (
             HospitalProfile.objects
             .select_related("user")
             .prefetch_related("specialties")
-            .all()
-            .order_by("user__name")
         )
+
+        if search:
+            hospitals = hospitals.filter(
+                user__name__icontains=search,
+            )
+
+        hospitals = hospitals.order_by("user__name")
 
         serializer = HospitalProfileSerializer(
             hospitals,

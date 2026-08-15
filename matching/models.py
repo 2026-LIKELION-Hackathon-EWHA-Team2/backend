@@ -4,6 +4,7 @@ from accounts.models import (
     HospitalProfile,
     PatientProfile,
 )
+from accounts.specialties import SpecialtyCode
 
 from selfsymptoms.models import PatientSymptomCase
 
@@ -40,6 +41,13 @@ class HospitalMatchRequest(models.Model):
     # selfsymptoms 분석 결과
     required_specialty = models.CharField(
         max_length=100,
+        null=True,
+        blank=True,
+    )
+
+    required_specialty_code = models.CharField(
+        max_length=30,
+        choices=SpecialtyCode.choices,
         null=True,
         blank=True,
     )

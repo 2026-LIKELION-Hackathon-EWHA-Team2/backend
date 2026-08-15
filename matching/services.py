@@ -7,6 +7,7 @@ from math import (
 )
 
 from accounts.models import HospitalProfile
+from accounts.specialties import SpecialtyCode, normalize_specialty_name
 from cases.models import MedicalCase
 
 from .ai_service import analyze_required_specialty
@@ -85,6 +86,7 @@ def calculate_distance_km(
 
 def calculate_specialty_score(
     required_specialty,
+    required_specialty_code,
     hospital,
 ):
     """
@@ -97,14 +99,26 @@ def calculate_specialty_score(
     병원이 가지고 있는 MedicalSpecialty와 비교한다.
     """
 
-    hospital_specialties = set(
-        hospital.specialties.values_list(
-            "specialty_name",
-            flat=True,
-        )
-    )
+    hospital_specialties = list(hospital.specialties.all())
 
-    if required_specialty in hospital_specialties:
+    if (
+        required_specialty_code
+        and required_specialty_code != SpecialtyCode.CUSTOM
+        and any(
+            specialty.specialty_code == required_specialty_code
+            for specialty in hospital_specialties
+        )
+    ):
+        return 100
+
+    normalized_required_specialty = normalize_specialty_name(
+        required_specialty
+    )
+    if any(
+        normalize_specialty_name(specialty.specialty_name)
+        == normalized_required_specialty
+        for specialty in hospital_specialties
+    ):
         return 100
 
     return 0
@@ -228,19 +242,29 @@ def generate_recommendations(
 ):
 
     # selfsymptoms case 분석
-    required_specialty = (
+    required_specialty_result = (
         determine_required_specialty(
             match_request.symptom_case
         )
     )
 
-    if required_specialty is None:
+    if required_specialty_result is None:
         raise ValueError(
             "필요 진료과를 분석할 수 없습니다."
         )
 
+    required_specialty = required_specialty_result[
+        "specialty_name"
+    ]
+    required_specialty_code = required_specialty_result[
+        "specialty_code"
+    ]
+
     match_request.required_specialty = (
         required_specialty
+    )
+    match_request.required_specialty_code = (
+        required_specialty_code
     )
 
     match_request.status = (
@@ -250,6 +274,7 @@ def generate_recommendations(
     match_request.save(
         update_fields=[
             "required_specialty",
+            "required_specialty_code",
             "status",
             "updated_at",
         ]
@@ -298,6 +323,7 @@ def generate_recommendations(
         specialty_score = (
             calculate_specialty_score(
                 required_specialty,
+                required_specialty_code,
                 hospital,
             )
         )

@@ -1,6 +1,8 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+from .specialties import SpecialtyCode
+
 
 class User(AbstractUser):
     class UserType(models.TextChoices):
@@ -213,6 +215,12 @@ class MedicalSpecialty(models.Model):
         HospitalProfile,
         on_delete=models.CASCADE,
         related_name="specialties",
+    )
+
+    specialty_code = models.CharField(
+        max_length=30,
+        choices=SpecialtyCode.choices,
+        default=SpecialtyCode.CUSTOM,
     )
 
     specialty_name = models.CharField(

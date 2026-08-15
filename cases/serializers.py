@@ -181,6 +181,11 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    adverse_effects = CaseAdverseEffectSerializer(
+        many=True,
+        read_only=True,
+    )
+
     class Meta:
         model = MedicalCase
         fields = (
@@ -193,7 +198,11 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
             "procedure_area",
             "procedure_date",
             "ingredients",
+            "adverse_effects",
             "clinician_note",
+            "ai_summary",
+            "status",
+            "transferred_at",
         )
 
 
@@ -922,6 +931,10 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
         source="medical_case.origin_hospital.name",
         read_only=True,
     )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
 
     class Meta:
         model = CaseTransfer
@@ -933,6 +946,7 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
             "partner_hospital_id",
             "partner_hospital_name",
             "origin_hospital_name",
+            "ai_translation_summary",
             "patient_name",
             "patient_gender",
             "patient_birth_date",
@@ -976,6 +990,10 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
         source="medical_case.origin_hospital.name",
         read_only=True,
     )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
     transmitted_data = serializers.SerializerMethodField()
     agreements = serializers.SerializerMethodField()
     collaboration_request_id = serializers.SerializerMethodField()
@@ -992,6 +1010,7 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
             "partner_hospital_name",
             "origin_hospital_name",
             "target_language",
+            "ai_translation_summary",
             "transmitted_data",
             "agreements",
             "collaboration_request_id",

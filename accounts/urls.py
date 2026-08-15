@@ -6,6 +6,7 @@ from .views import (
     HospitalSignUpView,
     LoginView,
     LogoutView,
+    MedicalSpecialtyOptionsView,
     PatientProfileView,
     PatientSignUpView,
 )
@@ -15,6 +16,11 @@ app_name = "accounts"
 
 
 urlpatterns = [
+    path(
+        "specialties/options/",
+        MedicalSpecialtyOptionsView.as_view(),
+        name="medical-specialty-options",
+    ),
     path(
         "signup/patient/",
         PatientSignUpView.as_view(),

@@ -348,6 +348,9 @@ class HospitalRecommendationListView(
                 "required_specialty":
                     match_request.required_specialty,
 
+                "required_specialty_code":
+                    match_request.required_specialty_code,
+
                 "recommendations":
                     serializer.data,
             },
