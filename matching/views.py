@@ -96,7 +96,7 @@ class HospitalMatchRequestCreateView(APIView):
 
         if (
             symptom_case.status
-            == PatientSymptomCase.Status.DRAFT
+            != PatientSymptomCase.Status.SUBMITTED
         ):
             return Response(
                 {
@@ -150,6 +150,16 @@ class HospitalMatchRequestCreateView(APIView):
             )
 
             match_request.save(
+                update_fields=[
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            symptom_case.status = (
+                PatientSymptomCase.Status.SUBMITTED
+            )
+            symptom_case.save(
                 update_fields=[
                     "status",
                     "updated_at",
@@ -348,6 +358,9 @@ class HospitalRecommendationListView(
                 "required_specialty":
                     match_request.required_specialty,
 
+                "required_specialty_code":
+                    match_request.required_specialty_code,
+
                 "recommendations":
                     serializer.data,
             },
@@ -526,6 +539,11 @@ class HospitalRecommendationSelectView(
                     recommendation
                     .hospital
                     .hospital_id,
+
+                "partner_hospital_user_id":
+                    recommendation
+                    .hospital
+                    .user_id,
 
                 "partner_hospital_name":
                     recommendation

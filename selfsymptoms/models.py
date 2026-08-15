@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.core.validators import FileExtensionValidator
 
 from accounts.models import PatientProfile
 
@@ -19,6 +20,7 @@ class PatientSymptomCase(models.Model):
         MATCHING = "MATCHING", "병원 매칭 중"
         HOSPITAL_SELECTED = "HOSPITAL_SELECTED", "병원 선택 완료"
         CONNECTION_REQUESTED = "CONNECTION_REQUESTED", "연결 요청 완료"
+        IN_COLLABORATION = "IN_COLLABORATION", "협진 진행 중"
         COMPLETED = "COMPLETED", "완료"
         CANCELLED = "CANCELLED", "취소"
 
@@ -30,6 +32,31 @@ class PatientSymptomCase(models.Model):
         PatientProfile,
         on_delete=models.CASCADE,
         related_name="symptom_cases",
+    )
+
+    diagnosed_hospital = models.ForeignKey(
+        "accounts.HospitalProfile",
+        on_delete=models.PROTECT,
+        related_name="diagnosed_symptom_cases",
+        null=True,
+        blank=True,
+    )
+
+    diagnosis_document = models.FileField(
+        upload_to="diagnosis_documents/%Y/%m/%d/",
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=[
+                    "pdf",
+                    "jpg",
+                    "jpeg",
+                    "png",
+                ],
+                message="PDF, JPG, JPEG, PNG 파일만 업로드 가능합니다.",
+            )
+        ],
+        null=True,
+        blank=True,
     )
 
     symptom_start_date = models.DateField(
@@ -315,4 +342,44 @@ class PatientSymptomType(models.Model):
             return self.custom_symptom
 
         return self.get_symptom_type_display()
-# Create your models here.
+
+
+class DiagnosisAnalysis(models.Model):
+    diagnosis_analysis_id = models.BigAutoField(
+        primary_key=True,
+    )
+
+    symptom_case = models.OneToOneField(
+        PatientSymptomCase,
+        on_delete=models.CASCADE,
+        related_name="diagnosis_analysis",
+    )
+
+    extracted_text = models.TextField(
+        null=True,
+        blank=True,
+    )
+
+    analysis_result = models.JSONField(
+        null=True,
+        blank=True,
+    )
+
+    analyzed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "DIAGNOSIS_ANALYSIS"
+
+    def __str__(self):
+        return f"진단서 분석 {self.diagnosis_analysis_id}"

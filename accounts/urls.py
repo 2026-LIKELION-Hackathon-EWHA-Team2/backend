@@ -1,12 +1,59 @@
 from django.urls import path
-from .views import *
 
-app_name = 'accounts'
+from .views import (
+    HospitalListView,
+    HospitalProfileView,
+    HospitalSignUpView,
+    LoginView,
+    LogoutView,
+    MedicalSpecialtyOptionsView,
+    PatientProfileView,
+    PatientSignUpView,
+)
+
+
+app_name = "accounts"
+
 
 urlpatterns = [
-    path('signup/', SignUpView.as_view()),
-    path("login/", LoginView.as_view()),
-    path("logout/", LogoutView.as_view()),
-    path("patient-profile/", PatientProfileView.as_view()),
-    path("hospital-profile/", HospitalProfileView.as_view()),
+    path(
+        "specialties/options/",
+        MedicalSpecialtyOptionsView.as_view(),
+        name="medical-specialty-options",
+    ),
+    path(
+        "signup/patient/",
+        PatientSignUpView.as_view(),
+        name="patient-signup",
+    ),
+    path(
+        "signup/hospital/",
+        HospitalSignUpView.as_view(),
+        name="hospital-signup",
+    ),
+    path(
+        "login/",
+        LoginView.as_view(),
+        name="login",
+    ),
+    path(
+        "logout/",
+        LogoutView.as_view(),
+        name="logout",
+    ),
+    path(
+        "patient-profile/",
+        PatientProfileView.as_view(),
+        name="patient-profile",
+    ),
+    path(
+        "hospital-profile/",
+        HospitalProfileView.as_view(),
+        name="hospital-profile",
+    ),
+    path(
+        "hospitals/",
+        HospitalListView.as_view(),
+        name="hospital-list",
+    ),
 ]

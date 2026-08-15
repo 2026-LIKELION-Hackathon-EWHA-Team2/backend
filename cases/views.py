@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from datetime import date
 
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -16,27 +16,29 @@ from django.utils import timezone
 
 from django.conf import settings
 from accounts.models import User
+from selfsymptoms.models import DiagnosisAnalysis
 
 from .models import (
     CaseAgreement,
     CaseTransfer,
     CaseAgreementReview,
     CaseAgreementRevision,
+    CaseIngredient,
     CaseChatMessageTranslation,
     CaseChatRoom,
     CaseCollaborationRequest,
-    CaseSyncRequest,
     MedicalCase,
 )
 from .services import (
+    analyze_diagnosis_document,
     generate_case_agreement,
+    generate_patient_symptom_translation_summary,
     translate_medical_message,
-    translate_and_structure_transfer,
 )
 
 
 
-from .permissions import IsCaseChatParticipant, IsPatient, IsHospital
+from .permissions import IsCaseChatParticipant, IsHospital
 from .serializers import (
     CaseTransferCreateSerializer,
     CaseTransferDetailSerializer,
@@ -44,15 +46,9 @@ from .serializers import (
     PartnerCaseTransferSerializer,
     CaseAgreementSerializer,
     CaseAgreementRevisionSerializer,
-    AdverseEffectUpdateSerializer,
     CaseChatMessageSerializer,
     CaseCollaborationRequestSerializer,
-    CaseCollaborationRequestDetailSerializer,
-    CaseTransferSerializer,
-    MedicalCaseCreateSerializer,
     MedicalCaseDetailSerializer,
-    CaseSyncRequestCreateSerializer,
-    CaseSyncRequestDetailSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,21 +69,12 @@ def get_collaboration_requests_for_user(user):
             "medical_case__patient",
             "medical_case__origin_hospital",
             "medical_case__partner_hospital",
-            "medical_case__sync_request",
-            "medical_case__sync_request__patient",
-            "medical_case__sync_request__origin_hospital",
-            "medical_case__sync_request__partner_hospital",
-            "medical_case__sync_request__symptom_case",
-            "medical_case__sync_request__symptom_case__patient",
-            "medical_case__sync_request__symptom_case__patient__user",
         )
         .prefetch_related(
             "medical_case__ingredients",
             "medical_case__adverse_effects",
             "medical_case__chat_rooms",
-            "medical_case__sync_request__symptom_case__images",
-            "medical_case__sync_request__symptom_case__areas",
-            "medical_case__sync_request__symptom_case__symptom_types",
+            "medical_case__case_transfers",
         )
         .order_by("-requested_at")
     )
@@ -120,14 +107,9 @@ def get_agreement_chat_room(request, case_id, room_id):
 
 
 
-class MedicalCaseListCreateView(generics.ListCreateAPIView):
+class MedicalCaseListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return MedicalCaseCreateSerializer
-
-        return MedicalCaseDetailSerializer
+    serializer_class = MedicalCaseDetailSerializer
 
     def get_queryset(self):
         user = self.request.user
@@ -147,29 +129,6 @@ class MedicalCaseListCreateView(generics.ListCreateAPIView):
             ).distinct()
 
         return MedicalCase.objects.none()
-
-    def create(self, request, *args, **kwargs):
-        if request.user.user_type != "HOSPITAL":
-            raise PermissionDenied(
-                "병원 회원만 케이스를 생성할 수 있습니다."
-            )
-
-        serializer = self.get_serializer(
-            data=request.data,
-        )
-        serializer.is_valid(raise_exception=True)
-
-        medical_case = serializer.save(
-            origin_hospital=request.user,
-        )
-
-        return Response(
-            MedicalCaseDetailSerializer(
-                medical_case
-            ).data,
-            status=status.HTTP_201_CREATED,
-        )
-
 
 class MedicalCaseDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -217,94 +176,6 @@ class MedicalCaseDetailView(APIView):
             ).data
         )
 
-
-class AdverseEffectUpdateView(APIView):
-    permission_classes = [IsPatient]
-
-    def put(self, request, case_id):
-        medical_case = get_object_or_404(
-            MedicalCase,
-            id=case_id,
-            patient=request.user,
-        )
-
-        serializer = AdverseEffectUpdateSerializer(
-            data=request.data,
-            context={
-                "medical_case": medical_case,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response(
-            MedicalCaseDetailSerializer(
-                medical_case
-            ).data
-        )
-
-
-
-class CaseTransferView(APIView):
-    permission_classes = [IsPatient]
-
-    @transaction.atomic
-    def post(self, request, case_id):
-        medical_case = get_object_or_404(
-            MedicalCase.objects.select_for_update(),
-            id=case_id,
-            patient=request.user,
-        )
-
-        serializer = CaseTransferSerializer(
-            medical_case,
-            data=request.data,
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        collaboration_request, request_created = (
-            CaseCollaborationRequest.objects.get_or_create(
-                medical_case=medical_case,
-                defaults={
-                    "status": (
-                        CaseCollaborationRequest.Status.REQUESTED
-                    ),
-                },
-            )
-        )
-
-        CaseSyncRequest.objects.filter(
-            medical_case=medical_case,
-        ).update(
-            status=CaseSyncRequest.Status.SENT_TO_PARTNER,
-            updated_at=timezone.now(),
-        )
-
-        response_data = dict(
-            MedicalCaseDetailSerializer(
-                medical_case,
-            ).data
-        )
-
-        response_data.update(
-            {
-                "collaboration_request_id": (
-                    collaboration_request.id
-                ),
-                "collaboration_request_status": (
-                    collaboration_request.status
-                ),
-                "collaboration_request_created": (
-                    request_created
-                ),
-            }
-        )
-
-        return Response(
-            response_data,
-            status=status.HTTP_200_OK,
-        )
 
 class CaseChatMessageListCreateView(APIView):
     permission_classes = [
@@ -469,149 +340,6 @@ class CaseChatMessageListCreateView(APIView):
         )
 
 
-class CaseSyncRequestListCreateView(
-    generics.ListCreateAPIView
-):
-    permission_classes = [IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return CaseSyncRequestCreateSerializer
-
-        return CaseSyncRequestDetailSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-
-        queryset = (
-            CaseSyncRequest.objects
-            .select_related(
-                "patient",
-                "symptom_case",
-                "symptom_case__patient",
-                "symptom_case__patient__user",
-                "origin_hospital",
-                "partner_hospital",
-                "medical_case",
-            )
-            .prefetch_related(
-                "symptom_case__images",
-                "symptom_case__areas",
-                "symptom_case__symptom_types",
-            )
-            .order_by("-created_at")
-        )
-
-        if user.user_type == "PATIENT":
-            return queryset.filter(
-                patient=user,
-            )
-
-        if user.user_type == "HOSPITAL":
-            return queryset.filter(
-                origin_hospital=user,
-            )
-
-        return queryset.none()
-
-    def perform_create(self, serializer):
-        serializer.save(
-            patient=self.request.user,
-        )
-
-
-class CaseSyncRequestReviewView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request, sync_request_id):
-        sync_request = get_object_or_404(
-            CaseSyncRequest.objects
-            .select_for_update()
-            .select_related(
-                "patient",
-                "symptom_case",
-                "origin_hospital",
-                "partner_hospital",
-            ),
-            id=sync_request_id,
-        )
-
-        if request.user.user_type != "HOSPITAL":
-            raise PermissionDenied(
-                "병원 회원만 검토할 수 있습니다."
-            )
-
-        if request.user != sync_request.origin_hospital:
-            raise PermissionDenied(
-                "해당 시술 병원만 검토할 수 있습니다."
-            )
-
-        if (
-            sync_request.status
-            != CaseSyncRequest.Status.REQUESTED
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "이미 검토됐거나 "
-                        "처리할 수 없는 요청입니다."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        case_data = {
-            **request.data,
-            "patient_id": sync_request.patient_id,
-            "partner_hospital_id": (
-                sync_request.partner_hospital_id
-            ),
-        }
-
-        case_serializer = MedicalCaseCreateSerializer(
-            data=case_data,
-            context={"request": request},
-        )
-        case_serializer.is_valid(raise_exception=True)
-
-        medical_case = case_serializer.save(
-            origin_hospital=request.user,
-        )
-
-        sync_request.medical_case = medical_case
-        sync_request.status = (
-            CaseSyncRequest.Status.HOSPITAL_REVIEWED
-        )
-        sync_request.reviewed_at = timezone.now()
-
-        sync_request.save(
-            update_fields=[
-                "medical_case",
-                "status",
-                "reviewed_at",
-                "updated_at",
-            ]
-        )
-
-        return Response(
-            {
-                "sync_request": (
-                    CaseSyncRequestDetailSerializer(
-                        sync_request,
-                        context={"request": request},
-                    ).data
-                ),
-                "medical_case": (
-                    MedicalCaseDetailSerializer(
-                        medical_case
-                    ).data
-                ),
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-
 class CaseCollaborationRequestListView(
     generics.ListAPIView
 ):
@@ -623,6 +351,7 @@ class CaseCollaborationRequestListView(
     ALLOWED_STATUSES = {
         CaseCollaborationRequest.Status.REQUESTED,
         CaseCollaborationRequest.Status.ACCEPTED,
+        CaseCollaborationRequest.Status.COMPLETED,
     }
 
     def get_queryset(self):
@@ -644,7 +373,8 @@ class CaseCollaborationRequestListView(
                 {
                     "status": (
                         "현재 조회 가능한 상태는 "
-                        "REQUESTED 또는 ACCEPTED입니다."
+                        "REQUESTED, ACCEPTED 또는 "
+                        "COMPLETED입니다."
                     )
                 }
             )
@@ -658,9 +388,7 @@ class CaseCollaborationRequestDetailView(
     generics.RetrieveAPIView
 ):
     permission_classes = [IsHospital]
-    serializer_class = (
-        CaseCollaborationRequestDetailSerializer
-    )
+    serializer_class = CaseCollaborationRequestSerializer
     lookup_url_kwarg = (
         "collaboration_request_id"
     )
@@ -793,12 +521,23 @@ class CaseCollaborationRequestAcceptView(APIView):
             ]
         )
 
-        CaseSyncRequest.objects.filter(
-            medical_case=medical_case,
-        ).update(
-            status=CaseSyncRequest.Status.COMPLETED,
-            updated_at=timezone.now(),
+        transfer = (
+            CaseTransfer.objects
+            .select_related("symptom_case")
+            .filter(
+                medical_case=medical_case,
+                status=CaseTransfer.Status.TRANSFERRED,
+            )
+            .first()
         )
+        if transfer is not None:
+            symptom_case = transfer.symptom_case
+            symptom_case.status = (
+                symptom_case.Status.IN_COLLABORATION
+            )
+            symptom_case.save(
+                update_fields=["status", "updated_at"]
+            )
 
         return Response(
             {
@@ -902,11 +641,7 @@ class CaseAgreementDetailView(APIView):
             editable_fields = (
                 "judgment_draft",
                 "evidence_items",
-                "observation_days",
-                "photo_upload_date",
-                "follow_up_date",
-                "precautions",
-                "patient_message",
+                "additional_opinion",
             )
 
             changed_fields = [
@@ -918,12 +653,12 @@ class CaseAgreementDetailView(APIView):
             ]
 
             if not changed_fields:
-                return Response(
-                    CaseAgreementSerializer(
-                        agreement,
-                        context={"request": request},
-                    ).data
-                )
+                response_data = CaseAgreementSerializer(
+                    agreement,
+                    context={"request": request},
+                ).data
+                response_data["changed_fields"] = []
+                return Response(response_data)
 
             def date_value(value):
                 return (
@@ -956,12 +691,13 @@ class CaseAgreementDetailView(APIView):
             # 수정되면 양측의 기존 검토를 모두 무효화합니다.
             agreement.reviews.all().delete()
 
-        return Response(
-            CaseAgreementSerializer(
-                agreement,
-                context={"request": request},
-            ).data
-        )
+        response_data = CaseAgreementSerializer(
+            agreement,
+            context={"request": request},
+        ).data
+        response_data["changed_fields"] = changed_fields
+
+        return Response(response_data)
 
 class CaseAgreementReviewView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1005,10 +741,44 @@ class CaseAgreementReviewView(APIView):
             )
 
             if reviewed_ids == participant_ids:
+                completed_at = timezone.now()
                 agreement.status = CaseAgreement.Status.FINAL
-                agreement.finalized_at = timezone.now()
+                agreement.finalized_at = completed_at
                 agreement.revision_requested_by = None
                 agreement.revision_requested_at = None
+
+                collaboration_request = (
+                    CaseCollaborationRequest.objects
+                    .filter(medical_case=chat_room.medical_case)
+                    .first()
+                )
+                if collaboration_request is not None:
+                    collaboration_request.status = (
+                        CaseCollaborationRequest.Status.COMPLETED
+                    )
+                    collaboration_request.completed_at = completed_at
+                    collaboration_request.save(
+                        update_fields=(
+                            "status",
+                            "completed_at",
+                            "updated_at",
+                        )
+                    )
+
+                transfer = (
+                    chat_room.medical_case.case_transfers
+                    .select_related("symptom_case")
+                    .filter(status=CaseTransfer.Status.TRANSFERRED)
+                    .first()
+                )
+                if transfer is not None:
+                    symptom_case = transfer.symptom_case
+                    symptom_case.status = (
+                        symptom_case.Status.COMPLETED
+                    )
+                    symptom_case.save(
+                        update_fields=["status", "updated_at"]
+                    )
             else:
                 agreement.status = CaseAgreement.Status.IN_REVIEW
 
@@ -1066,6 +836,39 @@ class CaseAgreementRevisionRequestView(APIView):
                     "updated_at",
                 )
             )
+
+            collaboration_request = (
+                CaseCollaborationRequest.objects
+                .filter(medical_case=chat_room.medical_case)
+                .first()
+            )
+            if collaboration_request is not None:
+                collaboration_request.status = (
+                    CaseCollaborationRequest.Status.ACCEPTED
+                )
+                collaboration_request.completed_at = None
+                collaboration_request.save(
+                    update_fields=(
+                        "status",
+                        "completed_at",
+                        "updated_at",
+                    )
+                )
+
+            transfer = (
+                chat_room.medical_case.case_transfers
+                .select_related("symptom_case")
+                .filter(status=CaseTransfer.Status.TRANSFERRED)
+                .first()
+            )
+            if transfer is not None:
+                symptom_case = transfer.symptom_case
+                symptom_case.status = (
+                    symptom_case.Status.IN_COLLABORATION
+                )
+                symptom_case.save(
+                    update_fields=["status", "updated_at"]
+                )
 
         return Response(
             CaseAgreementSerializer(
@@ -1137,6 +940,21 @@ class CaseAgreementGenerateView(APIView):
             )
 
         medical_case = chat_room.medical_case
+        case_transfer = (
+            medical_case.case_transfers
+            .filter(status=CaseTransfer.Status.TRANSFERRED)
+            .first()
+        )
+        adverse_effects = (
+            case_transfer.adverse_effects
+            if case_transfer is not None
+            else list(
+                medical_case.adverse_effects.values_list(
+                    "effect_type",
+                    flat=True,
+                )
+            )
+        )
 
         case_data = {
             "procedure_name": medical_case.procedure_name,
@@ -1150,12 +968,7 @@ class CaseAgreementGenerateView(APIView):
                     flat=True,
                 )
             ),
-            "adverse_effects": list(
-                medical_case.adverse_effects.values_list(
-                    "effect_type",
-                    flat=True,
-                )
-            ),
+            "adverse_effects": adverse_effects,
             "clinician_note": medical_case.clinician_note,
         }
 
@@ -1171,6 +984,9 @@ class CaseAgreementGenerateView(APIView):
             raise ValidationError(
                 "AI 합의안 초안을 생성하지 못했습니다."
             )
+
+        # 추가 소견은 AI가 아니라 참여 의료진이 직접 작성합니다.
+        generated_data["additional_opinion"] = ""
 
         serializer = CaseAgreementSerializer(
             data=generated_data,
@@ -1208,52 +1024,150 @@ class CaseAgreementGenerateView(APIView):
         )
 
 
-class CaseTransferListCreateView(generics.ListCreateAPIView):
+class CaseTransferListCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CaseTransferCreateSerializer
 
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return CaseTransferCreateSerializer
-        return CaseTransferDetailSerializer
-
-    def get_queryset(self):
-        return (
-            CaseTransfer.objects
-            .filter(patient=self.request.user)
-            .select_related(
-                "patient",
-                "partner_hospital",
-                "symptom_case",
-                "medical_case",
-            )
-            .order_by("-created_at")
-        )
-
-    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        transfer = serializer.save()
+
+        symptom_case = serializer.validated_data["symptom_case"]
+        recommendation = serializer.validated_data["recommendation"]
+        partner_hospital = recommendation.hospital.user
+
+        symptom_data = {
+            "description": symptom_case.description,
+            "start_date": (
+                symptom_case.symptom_start_date.isoformat()
+                if symptom_case.symptom_start_date
+                else None
+            ),
+            "onset_timing": symptom_case.get_onset_timing_display()
+            if symptom_case.onset_timing
+            else None,
+            "pain_level": symptom_case.pain_level,
+            "areas": [
+                area.custom_area or area.get_area_type_display()
+                for area in symptom_case.areas.all()
+            ],
+            "types": [
+                symptom_type.custom_symptom
+                or symptom_type.get_symptom_type_display()
+                for symptom_type in symptom_case.symptom_types.all()
+            ],
+        }
 
         try:
-            result = translate_and_structure_transfer(transfer)
-            transfer.translated_data = result
-            transfer.structured_data = result
-            transfer.status = CaseTransfer.Status.REVIEW_REQUIRED
-            transfer.processing_error = ""
+            document_result = analyze_diagnosis_document(
+                symptom_case.diagnosis_document,
+                partner_hospital.hospital_profile.language_code,
+                symptom_data,
+            )
         except Exception as exc:
-            transfer.status = CaseTransfer.Status.PROCESSING_FAILED
-            transfer.processing_error = str(exc)
+            logger.exception("Diagnosis document analysis failed")
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        transfer.save(
-            update_fields=[
-                "translated_data",
-                "structured_data",
-                "status",
-                "processing_error",
-                "updated_at",
-            ]
-        )
+        procedure = document_result["procedure"]
+        try:
+            procedure_date = date.fromisoformat(procedure["date"])
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "detail": (
+                        "진단서에서 추출한 시술일 형식이 "
+                        "올바르지 않습니다."
+                    )
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            ai_summary = generate_patient_symptom_translation_summary(
+                symptom_data,
+                partner_hospital.hospital_profile.language_code,
+            )
+        except Exception as exc:
+            logger.exception("Case translation summary generation failed")
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        structured_data = {
+            "patient_info": {
+                "name": serializer.validated_data["patient_name"],
+                "gender": serializer.validated_data["patient_gender"],
+                "birth_date": serializer.validated_data[
+                    "patient_birth_date"
+                ].isoformat(),
+            },
+            "symptoms": {
+                **document_result["symptoms"],
+                "images": list(
+                    symptom_case.images.values_list(
+                        "image",
+                        flat=True,
+                    )
+                ),
+            },
+            "procedure": procedure,
+            "ingredients": document_result["ingredients"],
+            "clinician_note": document_result["clinician_note"],
+            "ai_summary": ai_summary,
+        }
+
+        with transaction.atomic():
+            DiagnosisAnalysis.objects.update_or_create(
+                symptom_case=symptom_case,
+                defaults={
+                    "extracted_text": document_result[
+                        "extracted_text"
+                    ],
+                    "analysis_result": {
+                        key: value
+                        for key, value in document_result.items()
+                        if key != "extracted_text"
+                    },
+                    "analyzed_at": timezone.now(),
+                },
+            )
+
+            medical_case = MedicalCase.objects.create(
+                patient=request.user,
+                origin_hospital=(
+                    symptom_case.diagnosed_hospital.user
+                ),
+                partner_hospital=partner_hospital,
+                procedure_name=procedure["name"],
+                procedure_area=procedure["area"],
+                procedure_date=procedure_date,
+                clinician_note=document_result["clinician_note"],
+                ai_summary=ai_summary,
+                status=MedicalCase.Status.READY_TO_TRANSFER,
+            )
+
+            CaseIngredient.objects.bulk_create(
+                [
+                    CaseIngredient(
+                        medical_case=medical_case,
+                        ingredient_name=ingredient,
+                    )
+                    for ingredient
+                    in dict.fromkeys(document_result["ingredients"])
+                ]
+            )
+
+            transfer = serializer.save(
+                medical_case=medical_case,
+                structured_data=structured_data,
+                translated_data={},
+                status=CaseTransfer.Status.REVIEW_REQUIRED,
+                processing_error="",
+            )
 
         return Response(
             CaseTransferDetailSerializer(transfer).data,
@@ -1285,6 +1199,21 @@ class CaseTransferReviewView(generics.UpdateAPIView):
     def get_queryset(self):
         return CaseTransfer.objects.filter(
             patient=self.request.user,
+        )
+
+    def patch(self, request, *args, **kwargs):
+        transfer = self.get_object()
+        serializer = self.get_serializer(
+            transfer,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        transfer = serializer.save()
+
+        return Response(
+            CaseTransferDetailSerializer(transfer).data,
+            status=status.HTTP_200_OK,
         )
 
 
@@ -1354,6 +1283,12 @@ class CaseTransferSendView(APIView):
             defaults={
                 "status": CaseCollaborationRequest.Status.REQUESTED,
             },
+        )
+
+        symptom_case = transfer.symptom_case
+        symptom_case.status = symptom_case.Status.CONNECTION_REQUESTED
+        symptom_case.save(
+            update_fields=["status", "updated_at"]
         )
 
         return Response(

@@ -87,6 +87,10 @@ class HospitalMatchRequestSerializer(
         read_only=True,
     )
 
+    required_specialty_code = serializers.CharField(
+        read_only=True,
+    )
+
     class Meta:
         model = HospitalMatchRequest
 
@@ -97,6 +101,7 @@ class HospitalMatchRequestSerializer(
             "patient_id",
 
             "required_specialty",
+            "required_specialty_code",
 
             "specialty_weight",
             "distance_weight",
@@ -121,6 +126,7 @@ class HospitalMatchRequestSerializer(
             "match_request_id",
             "patient_id",
             "required_specialty",
+            "required_specialty_code",
             "status",
             "created_at",
             "updated_at",

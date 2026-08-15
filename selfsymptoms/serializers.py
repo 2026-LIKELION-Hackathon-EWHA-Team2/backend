@@ -1,12 +1,30 @@
 from django.db import transaction
 from rest_framework import serializers
 
+from accounts.models import HospitalProfile
+
 from .models import (
+    DiagnosisAnalysis,
     PatientSymptomArea,
     PatientSymptomCase,
     PatientSymptomImage,
     PatientSymptomType,
 )
+
+
+class DiagnosisAnalysisSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DiagnosisAnalysis
+        fields = [
+            "diagnosis_analysis_id",
+            "extracted_text",
+            "analysis_result",
+            "analyzed_at",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = fields
 
 
 class PatientSymptomImageSerializer(serializers.ModelSerializer):
@@ -233,6 +251,29 @@ class PatientSymptomCaseSerializer(
         read_only=True,
     )
 
+    diagnosed_hospital = serializers.PrimaryKeyRelatedField(
+        queryset=HospitalProfile.objects.all(),
+        required=True,
+    )
+
+    diagnosed_hospital_name = serializers.CharField(
+        source="diagnosed_hospital.user.name",
+        read_only=True,
+    )
+
+    diagnosis_document = serializers.FileField(
+        required=True,
+        allow_null=False,
+    )
+
+    diagnosis_document_url = serializers.SerializerMethodField(
+        read_only=True,
+    )
+
+    diagnosis_analysis = DiagnosisAnalysisSerializer(
+        read_only=True,
+    )
+
     images = PatientSymptomImageSerializer(
         many=True,
         read_only=True,
@@ -254,6 +295,11 @@ class PatientSymptomCaseSerializer(
             "symptom_case_id",
             "patient_id",
             "patient_name",
+            "diagnosed_hospital",
+            "diagnosed_hospital_name",
+            "diagnosis_document",
+            "diagnosis_document_url",
+            "diagnosis_analysis",
             "symptom_start_date",
             "onset_timing",
             "description",
@@ -270,10 +316,27 @@ class PatientSymptomCaseSerializer(
             "symptom_case_id",
             "patient_id",
             "patient_name",
+            "diagnosed_hospital_name",
+            "diagnosis_document_url",
+            "diagnosis_analysis",
+            "status",
             "images",
             "created_at",
             "updated_at",
         ]
+
+    def get_diagnosis_document_url(self, obj):
+        if not obj.diagnosis_document:
+            return None
+
+        request = self.context.get("request")
+
+        if request:
+            return request.build_absolute_uri(
+                obj.diagnosis_document.url
+            )
+
+        return obj.diagnosis_document.url
 
     def validate_pain_level(self, value):
         if value is not None:

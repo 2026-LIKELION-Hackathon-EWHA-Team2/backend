@@ -1,23 +1,81 @@
 from django.http import HttpRequest
+
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import PatientProfile, HospitalProfile
-from .serializers import (
-    UserSerializer,
-    UserLoginSerializer,
-    PatientProfileSerializer,
-    HospitalProfileSerializer,
+from .models import (
+    HospitalProfile,
+    PatientProfile,
 )
+from .serializers import (
+    HospitalProfileSerializer,
+    HospitalSignUpSerializer,
+    PatientProfileSerializer,
+    PatientSignUpSerializer,
+    UserLoginSerializer,
+)
+from .specialties import MAX_SPECIALTY_SELECTIONS, SpecialtyCode
 
 
-class SignUpView(APIView):
-    def post(self, request: HttpRequest, format=None):
-        serializer = UserSerializer(data=request.data)
+class MedicalSpecialtyOptionsView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(
+            {
+                "specialties": [
+                    {
+                        "specialty_code": code,
+                        "specialty_name": label,
+                        "requires_custom_name": (
+                            code == SpecialtyCode.CUSTOM
+                        ),
+                    }
+                    for code, label in SpecialtyCode.choices
+                ],
+                "max_selections": MAX_SPECIALTY_SELECTIONS,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PatientSignUpView(APIView):
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = PatientSignUpSerializer(
+            data=request.data
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class HospitalSignUpView(APIView):
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = HospitalSignUpSerializer(
+            data=request.data
+        )
 
         if serializer.is_valid():
             serializer.save()
@@ -34,8 +92,14 @@ class SignUpView(APIView):
 
 
 class LoginView(APIView):
-    def post(self, request: HttpRequest, format=None):
-        serializer = UserLoginSerializer(data=request.data)
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        serializer = UserLoginSerializer(
+            data=request.data
+        )
 
         if serializer.is_valid():
             return Response(
@@ -50,30 +114,50 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-    def post(self, request: HttpRequest, format=None):
-        refresh_token = request.data.get("refresh")
+    def post(
+        self,
+        request: HttpRequest,
+        format=None,
+    ):
+        refresh_token = request.data.get(
+            "refresh"
+        )
 
         if not refresh_token:
             return Response(
-                {"detail": "refresh token이 필요합니다."},
+                {
+                    "detail": (
+                        "refresh token이 필요합니다."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            token = RefreshToken(refresh_token)
+            token = RefreshToken(
+                refresh_token
+            )
+
             token.blacklist()
 
             return Response(
-                {"detail": "로그아웃되었습니다."},
+                {
+                    "detail": "로그아웃되었습니다."
+                },
                 status=status.HTTP_200_OK,
             )
 
         except TokenError:
             return Response(
                 {
-                    "detail": "유효하지 않거나 만료된 refresh token입니다."
+                    "detail": (
+                        "유효하지 않거나 만료된 "
+                        "refresh token입니다."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -85,7 +169,9 @@ class PatientProfileView(APIView):
     def get(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -94,11 +180,15 @@ class PatientProfileView(APIView):
 
         except PatientProfile.DoesNotExist:
             return Response(
-                {"detail": "환자 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "환자 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = PatientProfileSerializer(profile)
+        serializer = PatientProfileSerializer(
+            profile
+        )
 
         return Response(
             serializer.data,
@@ -108,13 +198,20 @@ class PatientProfileView(APIView):
     def post(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if hasattr(request.user, "patient_profile"):
+        if hasattr(
+            request.user,
+            "patient_profile",
+        ):
             return Response(
-                {"detail": "이미 환자 프로필이 존재합니다."},
+                {
+                    "detail": "이미 환자 프로필이 존재합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -140,7 +237,9 @@ class PatientProfileView(APIView):
     def patch(self, request):
         if request.user.user_type != "PATIENT":
             return Response(
-                {"detail": "환자 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "환자 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -149,7 +248,9 @@ class PatientProfileView(APIView):
 
         except PatientProfile.DoesNotExist:
             return Response(
-                {"detail": "환자 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "환자 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -179,7 +280,9 @@ class HospitalProfileView(APIView):
     def get(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -188,11 +291,15 @@ class HospitalProfileView(APIView):
 
         except HospitalProfile.DoesNotExist:
             return Response(
-                {"detail": "병원 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "병원 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = HospitalProfileSerializer(profile)
+        serializer = HospitalProfileSerializer(
+            profile
+        )
 
         return Response(
             serializer.data,
@@ -202,13 +309,20 @@ class HospitalProfileView(APIView):
     def post(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        if hasattr(request.user, "hospital_profile"):
+        if hasattr(
+            request.user,
+            "hospital_profile",
+        ):
             return Response(
-                {"detail": "이미 병원 프로필이 존재합니다."},
+                {
+                    "detail": "이미 병원 프로필이 존재합니다."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -234,7 +348,9 @@ class HospitalProfileView(APIView):
     def patch(self, request):
         if request.user.user_type != "HOSPITAL":
             return Response(
-                {"detail": "병원 계정만 접근할 수 있습니다."},
+                {
+                    "detail": "병원 계정만 접근할 수 있습니다."
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -243,7 +359,9 @@ class HospitalProfileView(APIView):
 
         except HospitalProfile.DoesNotExist:
             return Response(
-                {"detail": "병원 프로필이 존재하지 않습니다."},
+                {
+                    "detail": "병원 프로필이 존재하지 않습니다."
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -264,4 +382,45 @@ class HospitalProfileView(APIView):
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class HospitalListView(APIView):
+    """
+    회원가입된 병원 목록 조회 API
+
+    GET /accounts/hospitals/
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(self, request):
+        search = request.query_params.get(
+            "search",
+            "",
+        ).strip()
+
+        hospitals = (
+            HospitalProfile.objects
+            .select_related("user")
+            .prefetch_related("specialties")
+        )
+
+        if search:
+            hospitals = hospitals.filter(
+                user__name__icontains=search,
+            )
+
+        hospitals = hospitals.order_by("user__name")
+
+        serializer = HospitalProfileSerializer(
+            hospitals,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
         )

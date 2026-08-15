@@ -1,6 +1,8 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -20,23 +22,17 @@ from .serializers import (
 class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
     """
     개인 부작용 상태 기록 API
-
-    GET    /symptom-cases/
-    POST   /symptom-cases/
-    GET    /symptom-cases/{id}/
-    PATCH  /symptom-cases/{id}/
-    DELETE /symptom-cases/{id}/
     """
 
     serializer_class = PatientSymptomCaseSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def get_patient_profile(self):
-        """
-        현재 로그인한 사용자의 PatientProfile을 반환한다.
-        환자 계정이 아니거나 환자 프로필이 없으면 오류를 발생시킨다.
-        """
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+    ]
 
+    def get_patient_profile(self):
         user = self.request.user
 
         if user.user_type != user.UserType.PATIENT:
@@ -56,10 +52,6 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
             )
 
     def get_queryset(self):
-        """
-        로그인한 환자의 증상 기록만 조회한다.
-        """
-
         if not self.request.user.is_authenticated:
             return PatientSymptomCase.objects.none()
 
@@ -74,6 +66,9 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
             .select_related(
                 "patient",
                 "patient__user",
+                "diagnosed_hospital",
+                "diagnosed_hospital__user",
+                "diagnosis_analysis",
             )
             .prefetch_related(
                 "images",
@@ -84,10 +79,6 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
         )
 
     def get_serializer_context(self):
-        """
-        serializer의 create()에서 사용할 patient를 전달한다.
-        """
-
         context = super().get_serializer_context()
 
         if self.request.method == "POST":
@@ -96,10 +87,6 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
         return context
 
     def perform_update(self, serializer):
-        """
-        자신의 증상 기록만 수정할 수 있도록 확인한다.
-        """
-
         symptom_case = self.get_object()
         patient = self.get_patient_profile()
 
@@ -108,13 +95,14 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록만 수정할 수 있습니다."
             )
 
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록은 수정할 수 없습니다."
+            )
+
         serializer.save()
 
     def perform_destroy(self, instance):
-        """
-        자신의 증상 기록만 삭제할 수 있도록 확인한다.
-        """
-
         patient = self.get_patient_profile()
 
         if instance.patient_id != patient.patient_id:
@@ -122,22 +110,61 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록만 삭제할 수 있습니다."
             )
 
+        if instance.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록은 삭제할 수 없습니다."
+            )
+
         instance.delete()
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def submit(self, request, pk=None):
+        patient = self.get_patient_profile()
+        symptom_case = get_object_or_404(
+            PatientSymptomCase.objects
+            .select_for_update()
+            .prefetch_related("areas", "symptom_types"),
+            symptom_case_id=pk,
+            patient=patient,
+        )
+
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "작성 중인 증상 기록만 제출할 수 있습니다."
+            )
+
+        errors = {}
+        if symptom_case.diagnosed_hospital_id is None:
+            errors["diagnosed_hospital"] = (
+                "시술받은 병원을 선택해 주세요."
+            )
+        if not symptom_case.diagnosis_document:
+            errors["diagnosis_document"] = (
+                "진단서를 등록해 주세요."
+            )
+        if not any([
+            bool((symptom_case.description or "").strip()),
+            symptom_case.areas.exists(),
+            symptom_case.symptom_types.exists(),
+        ]):
+            errors["symptoms"] = (
+                "증상 설명, 증상 부위 또는 증상 종류를 입력해 주세요."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+        symptom_case.status = PatientSymptomCase.Status.SUBMITTED
+        symptom_case.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            self.get_serializer(symptom_case).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class PatientSymptomImageViewSet(viewsets.ModelViewSet):
-    """
-    증상 사진 API
-
-    사진 업로드는 multipart/form-data 형식으로 요청한다.
-
-    GET    /symptom-images/
-    POST   /symptom-images/
-    GET    /symptom-images/{id}/
-    PATCH  /symptom-images/{id}/
-    DELETE /symptom-images/{id}/
-    """
-
     serializer_class = PatientSymptomImageSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -166,10 +193,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
             )
 
     def get_queryset(self):
-        """
-        로그인한 환자의 증상 사진만 조회한다.
-        """
-
         if not self.request.user.is_authenticated:
             return PatientSymptomImage.objects.none()
 
@@ -192,10 +215,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
-        """
-        증상 케이스 ID와 사진 파일을 받아 사진을 등록한다.
-        """
-
         patient = self.get_patient_profile()
 
         symptom_case_id = request.data.get("symptom_case")
@@ -220,6 +239,11 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록에만 사진을 등록할 수 있습니다."
             )
 
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록에는 사진을 등록할 수 없습니다."
+            )
+
         if symptom_case.images.count() >= 6:
             return Response(
                 {
@@ -234,6 +258,7 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(
             data=request.data,
         )
+
         serializer.is_valid(
             raise_exception=True,
         )
@@ -253,10 +278,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
-        """
-        본인이 등록한 사진만 수정할 수 있다.
-        """
-
         symptom_image = self.get_object()
         patient = self.get_patient_profile()
 
@@ -268,17 +289,19 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
                 "본인의 증상 사진만 수정할 수 있습니다."
             )
 
-        # 사진 수정 과정에서 다른 증상 케이스로
-        # 옮기는 것을 방지한다.
+        if (
+            symptom_image.symptom_case.status
+            != PatientSymptomCase.Status.DRAFT
+        ):
+            raise ValidationError(
+                "제출한 증상 기록의 사진은 수정할 수 없습니다."
+            )
+
         serializer.save(
             symptom_case=symptom_image.symptom_case,
         )
 
     def perform_destroy(self, instance):
-        """
-        본인이 등록한 사진만 삭제할 수 있다.
-        """
-
         patient = self.get_patient_profile()
 
         if (
@@ -287,6 +310,11 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         ):
             raise PermissionDenied(
                 "본인의 증상 사진만 삭제할 수 있습니다."
+            )
+
+        if instance.symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록의 사진은 삭제할 수 없습니다."
             )
 
         instance.delete()
