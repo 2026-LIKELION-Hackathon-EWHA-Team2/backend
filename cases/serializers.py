@@ -677,7 +677,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
     reviews = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     requires_re_review = serializers.SerializerMethodField()
-    follow_up_actions = serializers.SerializerMethodField()
+    latest_edit = serializers.SerializerMethodField()
 
     revision_requested_by_name = serializers.CharField(
         source="revision_requested_by.name",
@@ -692,21 +692,16 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "chat_room",
             "judgment_draft",
             "evidence_items",
-            "observation_days",
-            "photo_upload_date",
-            "follow_up_date",
-            "follow_up_actions",
-            "precautions",
-            "patient_message",
+            "additional_opinion",
             "status",
             "version",
+            "latest_edit",
             "edited_by_name",
             "edited_at",
             "finalized_at",
             "reviews",
             "can_edit",
             "requires_re_review",
-            "follow_up_actions",
             "created_at",
             "updated_at",
             "revision_requested_by_name",
@@ -717,6 +712,7 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "chat_room",
             "status",
             "version",
+            "latest_edit",
             "edited_by_name",
             "edited_at",
             "finalized_at",
@@ -755,31 +751,16 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
 
         return sorted(items, key=lambda item: item["order"])
 
-    def validate(self, attrs):
-        photo_date = attrs.get(
-            "photo_upload_date",
-            getattr(self.instance, "photo_upload_date", None),
-        )
-        follow_up_date = attrs.get(
-            "follow_up_date",
-            getattr(self.instance, "follow_up_date", None),
-        )
+    def get_latest_edit(self, obj):
+        if obj.edited_by_id is None or obj.edited_at is None:
+            return None
 
-        if (
-            photo_date is not None
-            and follow_up_date is not None
-            and follow_up_date < photo_date
-        ):
-            raise serializers.ValidationError(
-                {
-                    "follow_up_date": (
-                        "추가 확인일은 사진 재업로드일보다 "
-                        "빠를 수 없습니다."
-                    )
-                }
-            )
-
-        return attrs
+        return {
+            "hospital_name": obj.edited_by.name,
+            "edited_at": serializers.DateTimeField().to_representation(
+                obj.edited_at
+            ),
+        }
 
     def get_reviews(self, obj):
         return [
@@ -794,34 +775,6 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             }
             for review in obj.reviews.all()
         ]
-
-    def get_follow_up_actions(self, obj):
-        return {
-            "symptom_observation": {
-                "days": obj.observation_days,
-                "display": (
-                    f"{obj.observation_days}일"
-                    if obj.observation_days is not None
-                    else "없음"
-                ),
-            },
-            "photo_reupload": {
-                "date": obj.photo_upload_date,
-                "display": (
-                    obj.photo_upload_date.isoformat()
-                    if obj.photo_upload_date is not None
-                    else "없음"
-                ),
-            },
-            "additional_check": {
-                "date": obj.follow_up_date,
-                "display": (
-                    obj.follow_up_date.isoformat()
-                    if obj.follow_up_date is not None
-                    else "없음"
-                ),
-            },
-        }
 
     def get_can_edit(self, obj):
         request = self.context.get("request")
