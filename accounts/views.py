@@ -397,13 +397,23 @@ class HospitalListView(APIView):
     ]
 
     def get(self, request):
+        search = request.query_params.get(
+            "search",
+            "",
+        ).strip()
+
         hospitals = (
             HospitalProfile.objects
             .select_related("user")
             .prefetch_related("specialties")
-            .all()
-            .order_by("user__name")
         )
+
+        if search:
+            hospitals = hospitals.filter(
+                user__name__icontains=search,
+            )
+
+        hospitals = hospitals.order_by("user__name")
 
         serializer = HospitalProfileSerializer(
             hospitals,

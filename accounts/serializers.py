@@ -156,6 +156,13 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    website = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     class Meta:
         model = HospitalProfile
 
@@ -394,7 +401,7 @@ class HospitalSignUpSerializer(
         write_only=True,
     )
 
-    website = serializers.URLField(
+    website = serializers.CharField(
         max_length=500,
         write_only=True,
         required=False,
