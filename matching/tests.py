@@ -3,9 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
-from accounts.models import HospitalProfile, MedicalSpecialty, User
+from accounts.models import (
+    HospitalProfile,
+    MedicalSpecialty,
+    PatientProfile,
+    User,
+)
 from accounts.specialties import SpecialtyCode
+from selfsymptoms.models import PatientSymptomCase
 
 from .ai_service import analyze_required_specialty
 from .services import calculate_specialty_score
@@ -88,4 +97,65 @@ class SpecialtyMatchingScoreTests(TestCase):
                 "specialty_code": SpecialtyCode.PIGMENTATION,
                 "specialty_name": "색소",
             },
+        )
+
+
+class HospitalMatchRequestStatusTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="matching-patient",
+            password="StrongPassword!2026",
+            name="Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        self.patient = PatientProfile.objects.create(user=self.user)
+        self.client.force_authenticate(user=self.user)
+        self.url = reverse("match-request-create")
+
+    def payload(self, symptom_case):
+        return {
+            "symptom_case": symptom_case.pk,
+            "search_country": "JP",
+            "search_latitude": "35.6762000",
+            "search_longitude": "139.6503000",
+        }
+
+    def test_draft_case_cannot_start_matching(self):
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient,
+            status=PatientSymptomCase.Status.DRAFT,
+        )
+
+        response = self.client.post(
+            self.url,
+            self.payload(symptom_case),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        symptom_case.refresh_from_db()
+        self.assertEqual(
+            symptom_case.status,
+            PatientSymptomCase.Status.DRAFT,
+        )
+
+    @patch("matching.views.generate_recommendations")
+    def test_ai_failure_restores_submitted_status(self, generate):
+        generate.side_effect = RuntimeError("AI unavailable")
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient,
+            status=PatientSymptomCase.Status.SUBMITTED,
+        )
+
+        response = self.client.post(
+            self.url,
+            self.payload(symptom_case),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        symptom_case.refresh_from_db()
+        self.assertEqual(
+            symptom_case.status,
+            PatientSymptomCase.Status.SUBMITTED,
         )

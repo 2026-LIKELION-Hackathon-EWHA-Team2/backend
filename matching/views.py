@@ -96,7 +96,7 @@ class HospitalMatchRequestCreateView(APIView):
 
         if (
             symptom_case.status
-            == PatientSymptomCase.Status.DRAFT
+            != PatientSymptomCase.Status.SUBMITTED
         ):
             return Response(
                 {
@@ -150,6 +150,16 @@ class HospitalMatchRequestCreateView(APIView):
             )
 
             match_request.save(
+                update_fields=[
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+            symptom_case.status = (
+                PatientSymptomCase.Status.SUBMITTED
+            )
+            symptom_case.save(
                 update_fields=[
                     "status",
                     "updated_at",

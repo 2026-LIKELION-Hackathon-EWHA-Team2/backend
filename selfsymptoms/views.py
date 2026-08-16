@@ -1,6 +1,8 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
@@ -93,6 +95,11 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록만 수정할 수 있습니다."
             )
 
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록은 수정할 수 없습니다."
+            )
+
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -103,7 +110,58 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록만 삭제할 수 있습니다."
             )
 
+        if instance.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록은 삭제할 수 없습니다."
+            )
+
         instance.delete()
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def submit(self, request, pk=None):
+        patient = self.get_patient_profile()
+        symptom_case = get_object_or_404(
+            PatientSymptomCase.objects
+            .select_for_update()
+            .prefetch_related("areas", "symptom_types"),
+            symptom_case_id=pk,
+            patient=patient,
+        )
+
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "작성 중인 증상 기록만 제출할 수 있습니다."
+            )
+
+        errors = {}
+        if symptom_case.diagnosed_hospital_id is None:
+            errors["diagnosed_hospital"] = (
+                "시술받은 병원을 선택해 주세요."
+            )
+        if not symptom_case.diagnosis_document:
+            errors["diagnosis_document"] = (
+                "진단서를 등록해 주세요."
+            )
+        if not any([
+            bool((symptom_case.description or "").strip()),
+            symptom_case.areas.exists(),
+            symptom_case.symptom_types.exists(),
+        ]):
+            errors["symptoms"] = (
+                "증상 설명, 증상 부위 또는 증상 종류를 입력해 주세요."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+        symptom_case.status = PatientSymptomCase.Status.SUBMITTED
+        symptom_case.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            self.get_serializer(symptom_case).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class PatientSymptomImageViewSet(viewsets.ModelViewSet):
@@ -181,6 +239,11 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
                 "본인의 증상 기록에만 사진을 등록할 수 있습니다."
             )
 
+        if symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록에는 사진을 등록할 수 없습니다."
+            )
+
         if symptom_case.images.count() >= 6:
             return Response(
                 {
@@ -226,6 +289,14 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
                 "본인의 증상 사진만 수정할 수 있습니다."
             )
 
+        if (
+            symptom_image.symptom_case.status
+            != PatientSymptomCase.Status.DRAFT
+        ):
+            raise ValidationError(
+                "제출한 증상 기록의 사진은 수정할 수 없습니다."
+            )
+
         serializer.save(
             symptom_case=symptom_image.symptom_case,
         )
@@ -239,6 +310,11 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         ):
             raise PermissionDenied(
                 "본인의 증상 사진만 삭제할 수 있습니다."
+            )
+
+        if instance.symptom_case.status != PatientSymptomCase.Status.DRAFT:
+            raise ValidationError(
+                "제출한 증상 기록의 사진은 삭제할 수 없습니다."
             )
 
         instance.delete()
