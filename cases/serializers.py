@@ -599,6 +599,8 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
         source="medical_case.ai_summary",
         read_only=True,
     )
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
 
     class Meta:
         model = CaseTransfer
@@ -623,10 +625,13 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
             "include_procedure_info",
             "include_adverse_effects",
             "include_clinician_note",
-            "procedure_medication_agreed",
-            "adverse_effect_clinician_note_agreed",
-            "overseas_ai_processing_agreed",
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
             "agreed_at",
+            "collaboration_request_id",
+            "collaboration_request_status",
             "status",
             "transferred_at",
             "created_at",
@@ -635,6 +640,28 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
 
     def get_case_number(self, obj):
         return f"CASE-{obj.created_at.year}-{obj.id:06d}"
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.id
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.status
+            if collaboration_request is not None
+            else None
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -751,14 +778,17 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
 
     def get_agreements(self, obj):
         return {
-            "procedure_medication": (
-                obj.procedure_medication_agreed
+            "personal_information_provision": (
+                obj.personal_information_provision_agreed
             ),
-            "adverse_effect_clinician_note": (
-                obj.adverse_effect_clinician_note_agreed
+            "information_items_purpose": (
+                obj.information_items_purpose_confirmed
             ),
-            "overseas_ai_processing": (
-                obj.overseas_ai_processing_agreed
+            "medical_consultation_use": (
+                obj.medical_consultation_use_agreed
+            ),
+            "withdrawal_right": (
+                obj.withdrawal_right_confirmed
             ),
             "agreed_at": obj.agreed_at,
         }
@@ -768,9 +798,10 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseTransfer
         fields = (
-            "procedure_medication_agreed",
-            "adverse_effect_clinician_note_agreed",
-            "overseas_ai_processing_agreed",
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
         )
 
     def validate(self, attrs):
@@ -780,12 +811,10 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
             )
 
         if not all([
-            attrs.get("procedure_medication_agreed", False),
-            attrs.get(
-                "adverse_effect_clinician_note_agreed",
-                False,
-            ),
-            attrs.get("overseas_ai_processing_agreed", False),
+            attrs.get("personal_information_provision_agreed", False),
+            attrs.get("information_items_purpose_confirmed", False),
+            attrs.get("medical_consultation_use_agreed", False),
+            attrs.get("withdrawal_right_confirmed", False),
         ]):
             raise serializers.ValidationError(
                 "필수 동의가 필요합니다."

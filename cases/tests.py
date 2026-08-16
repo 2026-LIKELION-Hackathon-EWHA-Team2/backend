@@ -457,9 +457,45 @@ class CaseTransferFlowTests(APITestCase):
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
+    def test_hospital_selection_does_not_create_collaboration_request(self):
+        response = self.client.post(
+            reverse(
+                "recommendation-select",
+                kwargs={
+                    "recommendation_id": self.recommendation.pk,
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+
+    def test_all_four_consents_are_required(self):
+        create_response = self.create_transfer()
+
+        response = self.client.patch(
+            reverse(
+                "case-transfer-review",
+                kwargs={"transfer_id": create_response.data["id"]},
+            ),
+            {
+                "personal_information_provision_agreed": True,
+                "information_items_purpose_confirmed": True,
+                "medical_consultation_use_agreed": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+
     def test_symptom_completes_only_after_final_agreement(self):
         create_response = self.create_transfer()
         transfer_id = create_response.data["id"]
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.assertIsNone(
+            create_response.data["collaboration_request_id"],
+        )
 
         review_response = self.client.patch(
             reverse(
@@ -467,9 +503,10 @@ class CaseTransferFlowTests(APITestCase):
                 kwargs={"transfer_id": transfer_id},
             ),
             {
-                "procedure_medication_agreed": True,
-                "adverse_effect_clinician_note_agreed": True,
-                "overseas_ai_processing_agreed": True,
+                "personal_information_provision_agreed": True,
+                "information_items_purpose_confirmed": True,
+                "medical_consultation_use_agreed": True,
+                "withdrawal_right_confirmed": True,
             },
             format="json",
         )
@@ -477,6 +514,10 @@ class CaseTransferFlowTests(APITestCase):
         self.assertEqual(
             review_response.data["status"],
             CaseTransfer.Status.READY_TO_TRANSFER,
+        )
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.assertIsNone(
+            review_response.data["collaboration_request_id"],
         )
 
         send_response = self.client.post(
@@ -487,6 +528,14 @@ class CaseTransferFlowTests(APITestCase):
         )
         self.assertEqual(send_response.status_code, status.HTTP_200_OK)
         collaboration_request = CaseCollaborationRequest.objects.get()
+        self.assertEqual(
+            send_response.data["collaboration_request_id"],
+            collaboration_request.id,
+        )
+        self.assertEqual(
+            send_response.data["collaboration_request_status"],
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
         self.symptom_case.refresh_from_db()
         self.assertEqual(
             self.symptom_case.status,

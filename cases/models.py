@@ -415,11 +415,18 @@ class CaseTransfer(models.Model):
     include_adverse_effects = models.BooleanField(default=False)
     include_clinician_note = models.BooleanField(default=False)
 
-    procedure_medication_agreed = models.BooleanField(default=False)
-    adverse_effect_clinician_note_agreed = models.BooleanField(
+    personal_information_provision_agreed = models.BooleanField(
         default=False,
     )
-    overseas_ai_processing_agreed = models.BooleanField(default=False)
+    information_items_purpose_confirmed = models.BooleanField(
+        default=False,
+    )
+    medical_consultation_use_agreed = models.BooleanField(
+        default=False,
+    )
+    withdrawal_right_confirmed = models.BooleanField(
+        default=False,
+    )
     agreed_at = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(

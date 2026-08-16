@@ -1228,9 +1228,10 @@ class CaseTransferSendView(APIView):
             )
 
         if not all([
-            transfer.procedure_medication_agreed,
-            transfer.adverse_effect_clinician_note_agreed,
-            transfer.overseas_ai_processing_agreed,
+            transfer.personal_information_provision_agreed,
+            transfer.information_items_purpose_confirmed,
+            transfer.medical_consultation_use_agreed,
+            transfer.withdrawal_right_confirmed,
         ]):
             return Response(
                 {"detail": "필수 동의가 완료되지 않았습니다."},
