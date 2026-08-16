@@ -16,12 +16,18 @@ from .views import (
     CaseTransferDetailView,
     CaseTransferReviewView,
     CaseTransferSendView,
+    HospitalDashboardView,
     PartnerCaseTransferListView,
     PartnerCaseTransferDetailView,
 )
 
 
 urlpatterns = [
+    path(
+        "hospital/dashboard/",
+        HospitalDashboardView.as_view(),
+        name="hospital-dashboard",
+    ),
     path(
         "",
         MedicalCaseListView.as_view(),

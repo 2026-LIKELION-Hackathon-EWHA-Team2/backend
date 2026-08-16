@@ -115,6 +115,8 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
 class CaseCollaborationRequestSerializer(
     serializers.ModelSerializer
 ):
+    case_number = serializers.SerializerMethodField()
+
     medical_case = MedicalCaseDetailSerializer(
         read_only=True,
     )
@@ -152,6 +154,7 @@ class CaseCollaborationRequestSerializer(
 
         fields = (
             "id",
+            "case_number",
             "medical_case_id",
             "medical_case",
             "origin_hospital_id",
@@ -170,6 +173,12 @@ class CaseCollaborationRequestSerializer(
         )
 
         read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return (
+            f"CASE-{obj.medical_case.created_at.year}-"
+            f"{obj.medical_case_id:06d}"
+        )
 
     def get_chat_room_id(self, obj):
         room = obj.medical_case.chat_rooms.filter(

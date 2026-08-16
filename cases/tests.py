@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -75,6 +75,177 @@ class MedicalCaseReadAPITests(APITestCase):
         self.assertEqual(
             response.status_code,
             status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+
+class HospitalDashboardAndReceivedCaseTests(APITestCase):
+    def setUp(self):
+        self.hospital = User.objects.create_user(
+            username="dashboard-hospital",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.origin = User.objects.create_user(
+            username="dashboard-origin",
+            password="TestPassword!2026",
+            name="Seoul Beauty Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.other_hospital = User.objects.create_user(
+            username="dashboard-other",
+            password="TestPassword!2026",
+            name="Osaka Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.anna = User.objects.create_user(
+            username="dashboard-anna",
+            password="TestPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.sato = User.objects.create_user(
+            username="dashboard-sato",
+            password="TestPassword!2026",
+            name="Sato Aoi",
+            user_type=User.UserType.PATIENT,
+        )
+        self.client.force_authenticate(user=self.hospital)
+
+    def create_request(
+        self,
+        patient,
+        request_status,
+        *,
+        partner=None,
+        requested_at=None,
+        accepted_at=None,
+        completed_at=None,
+    ):
+        medical_case = MedicalCase.objects.create(
+            patient=patient,
+            origin_hospital=self.origin,
+            partner_hospital=partner or self.hospital,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date=date(2026, 8, 1),
+            clinician_note="Observe symptoms.",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        collaboration_request = CaseCollaborationRequest.objects.create(
+            medical_case=medical_case,
+            status=request_status,
+            accepted_at=accepted_at,
+            completed_at=completed_at,
+        )
+
+        if requested_at is not None:
+            CaseCollaborationRequest.objects.filter(
+                pk=collaboration_request.pk,
+            ).update(requested_at=requested_at)
+            collaboration_request.refresh_from_db()
+
+        return collaboration_request
+
+    def test_case_lookup_returns_all_received_dates_and_filters_status(self):
+        old_time = timezone.now() - timedelta(days=7)
+        requested = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        completed = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=old_time,
+        )
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+            partner=self.other_hospital,
+        )
+
+        response = self.client.get(
+            reverse("collaboration-request-list"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["id"] for item in response.data},
+            {requested.id, completed.id},
+        )
+
+        completed_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"status": "COMPLETED"},
+        )
+        self.assertEqual(len(completed_response.data), 1)
+        self.assertEqual(completed_response.data[0]["id"], completed.id)
+
+    def test_case_lookup_searches_patient_name_and_case_number(self):
+        request_item = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+
+        name_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"search": "Anna"},
+        )
+        self.assertEqual(len(name_response.data), 1)
+        self.assertEqual(name_response.data[0]["id"], request_item.id)
+
+        case_number = (
+            f"CASE-{request_item.medical_case.created_at.year}-"
+            f"{request_item.medical_case_id:06d}"
+        )
+        number_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"search": case_number},
+        )
+        self.assertEqual(len(number_response.data), 1)
+        self.assertEqual(
+            number_response.data[0]["case_number"],
+            case_number,
+        )
+
+    def test_dashboard_counts_today_and_lists_all_ongoing_cases(self):
+        old_time = timezone.now() - timedelta(days=3)
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        ongoing = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            requested_at=old_time,
+            accepted_at=old_time,
+        )
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("hospital-dashboard"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["today_summary"],
+            {
+                "received_count": 1,
+                "under_review_count": 1,
+                "completed_count": 1,
+            },
+        )
+        self.assertEqual(
+            [item["id"] for item in response.data["ongoing_collaborations"]],
+            [ongoing.id],
         )
 
 

@@ -1,3 +1,4 @@
+import re
 from datetime import date
 
 from django.db.models import Q
@@ -77,6 +78,28 @@ def get_collaboration_requests_for_user(user):
         )
         .order_by("-requested_at")
     )
+
+
+def get_received_collaboration_requests_for_user(user):
+    return (
+        CaseCollaborationRequest.objects
+        .filter(
+            medical_case__partner_hospital=user,
+        )
+        .select_related(
+            "medical_case",
+            "medical_case__patient",
+            "medical_case__origin_hospital",
+            "medical_case__partner_hospital",
+        )
+        .prefetch_related(
+            "medical_case__ingredients",
+            "medical_case__chat_rooms",
+            "medical_case__case_transfers",
+        )
+        .order_by("-requested_at")
+    )
+
 
 def get_agreement_chat_room(request, case_id, room_id):
     if request.user.user_type != "HOSPITAL":
@@ -353,7 +376,7 @@ class CaseCollaborationRequestListView(
     }
 
     def get_queryset(self):
-        queryset = get_collaboration_requests_for_user(
+        queryset = get_received_collaboration_requests_for_user(
             self.request.user,
         )
 
@@ -361,24 +384,76 @@ class CaseCollaborationRequestListView(
             self.request.query_params.get("status")
         )
 
-        if status_value is None:
+        if status_value is not None:
+            status_value = status_value.upper()
+
+            if status_value not in self.ALLOWED_STATUSES:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "현재 조회 가능한 상태는 "
+                            "REQUESTED, ACCEPTED 또는 "
+                            "COMPLETED입니다."
+                        )
+                    }
+                )
+
+            queryset = queryset.filter(status=status_value)
+
+        search = self.request.query_params.get("search", "").strip()
+        if not search:
             return queryset
 
-        status_value = status_value.upper()
-
-        if status_value not in self.ALLOWED_STATUSES:
-            raise ValidationError(
-                {
-                    "status": (
-                        "현재 조회 가능한 상태는 "
-                        "REQUESTED, ACCEPTED 또는 "
-                        "COMPLETED입니다."
-                    )
-                }
+        search_filter = Q(
+            medical_case__patient__name__icontains=search,
+        )
+        case_id_match = re.search(r"(\d+)$", search)
+        if case_id_match is not None:
+            search_filter |= Q(
+                medical_case_id=int(case_id_match.group(1)),
             )
 
-        return queryset.filter(
-            status=status_value,
+        return queryset.filter(search_filter)
+
+
+class HospitalDashboardView(APIView):
+    permission_classes = [IsHospital]
+
+    def get(self, request):
+        today = timezone.localdate()
+        received_requests = get_received_collaboration_requests_for_user(
+            request.user,
+        )
+
+        today_received = received_requests.filter(
+            requested_at__date=today,
+        )
+        ongoing_collaborations = received_requests.filter(
+            status=CaseCollaborationRequest.Status.ACCEPTED,
+        ).order_by("-accepted_at", "-requested_at")
+
+        return Response(
+            {
+                "date": today,
+                "today_summary": {
+                    "received_count": today_received.count(),
+                    "under_review_count": today_received.filter(
+                        status=CaseCollaborationRequest.Status.REQUESTED,
+                    ).count(),
+                    "completed_count": received_requests.filter(
+                        status=CaseCollaborationRequest.Status.COMPLETED,
+                        completed_at__date=today,
+                    ).count(),
+                },
+                "ongoing_collaborations": (
+                    CaseCollaborationRequestSerializer(
+                        ongoing_collaborations,
+                        many=True,
+                        context={"request": request},
+                    ).data
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
 
 
