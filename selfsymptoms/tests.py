@@ -123,7 +123,7 @@ class PatientSymptomCaseSubmitAPITests(APITestCase):
             ),
             {
                 "symptom_start_date": "2026-08-16",
-                "onset_timing": "IMMEDIATE",
+                "onset_timing": "AFTER_DAYS",
                 "description": "붓기와 통증이 있습니다.",
                 "pain_level": 3,
                 "areas": [
@@ -132,6 +132,7 @@ class PatientSymptomCaseSubmitAPITests(APITestCase):
                 "symptom_types": [
                     {"symptom_type": "SWELLING"},
                     {"symptom_type": "PAIN"},
+                    {"symptom_type": "BRUISING_BLEEDING"},
                 ],
             },
             format="json",
@@ -140,6 +141,14 @@ class PatientSymptomCaseSubmitAPITests(APITestCase):
         self.assertEqual(
             symptom_response.status_code,
             status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            symptom_response.data["onset_timing"],
+            "AFTER_DAYS",
+        )
+        self.assertEqual(
+            symptom_response.data["symptom_types"][2]["symptom_name"],
+            "멍/출혈",
         )
 
         document_response = self.client.patch(

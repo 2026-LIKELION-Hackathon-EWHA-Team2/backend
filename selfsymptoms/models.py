@@ -7,12 +7,8 @@ from accounts.models import PatientProfile
 
 class PatientSymptomCase(models.Model):
     class OnsetTiming(models.TextChoices):
-        IMMEDIATE = "IMMEDIATE", "즉시"
-        AFTER_1_DAY = "AFTER_1_DAY", "1일 후"
-        AFTER_2_3_DAYS = "AFTER_2_3_DAYS", "2~3일 후"
-        AFTER_4_7_DAYS = "AFTER_4_7_DAYS", "4~7일 후"
-        AFTER_1_WEEK = "AFTER_1_WEEK", "1주 이후"
-        UNKNOWN = "UNKNOWN", "정확히 모름"
+        IMMEDIATE = "IMMEDIATE", "시술 직후"
+        AFTER_DAYS = "AFTER_DAYS", "시술 후 며칠 뒤"
 
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "작성 중"
@@ -235,8 +231,10 @@ class PatientSymptomType(models.Model):
         REDNESS = "REDNESS", "붉음"
         SWELLING = "SWELLING", "붓기"
         PAIN = "PAIN", "통증"
-        BRUISING = "BRUISING", "멍"
-        BLEEDING = "BLEEDING", "출혈"
+        BRUISING_BLEEDING = (
+            "BRUISING_BLEEDING",
+            "멍/출혈",
+        )
         DISCHARGE = "DISCHARGE", "분비물"
         ITCHING = "ITCHING", "가려움"
         HEAT = "HEAT", "열감"

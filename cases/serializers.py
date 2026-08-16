@@ -26,6 +26,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "붉어짐",
         "INFECTION": "감염 의심",
         "PIGMENTATION": "색소침착",
+        "BRUISING_BLEEDING": "멍/출혈",
     },
     "en": {
         "SWELLING": "Swelling",
@@ -34,6 +35,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "Redness",
         "INFECTION": "Suspected infection",
         "PIGMENTATION": "Pigmentation",
+        "BRUISING_BLEEDING": "Bruising/bleeding",
     },
     "ja": {
         "SWELLING": "腫れ",
@@ -42,6 +44,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "発赤",
         "INFECTION": "感染の疑い",
         "PIGMENTATION": "色素沈着",
+        "BRUISING_BLEEDING": "あざ/出血",
     },
     "zh": {
         "SWELLING": "肿胀",
@@ -50,6 +53,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "发红",
         "INFECTION": "疑似感染",
         "PIGMENTATION": "色素沉着",
+        "BRUISING_BLEEDING": "淤青/出血",
     },
 }
 
