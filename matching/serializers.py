@@ -3,7 +3,6 @@ from accounts.serializers import MedicalSpecialtySerializer
 from accounts.models import HospitalProfile
 
 from .models import (
-    HospitalConnectionRequest,
     HospitalMatchRequest,
     HospitalRecommendation,
 )
@@ -287,49 +286,4 @@ class HospitalRecommendationSerializer(
             "is_selected",
 
             "created_at",
-        ]
-
-
-class HospitalConnectionRequestSerializer(
-    serializers.ModelSerializer
-):
-    hospital = HospitalSimpleSerializer(
-        read_only=True,
-    )
-
-    class Meta:
-        model = HospitalConnectionRequest
-
-        fields = [
-            "connection_request_id",
-
-            "recommendation",
-            "hospital",
-
-            "status",
-            "request_message",
-
-            "requested_at",
-            "accepted_at",
-            "rejected_at",
-            "cancelled_at",
-            "completed_at",
-
-            "created_at",
-            "updated_at",
-        ]
-
-        read_only_fields = [
-            "connection_request_id",
-            "hospital",
-            "status",
-
-            "requested_at",
-            "accepted_at",
-            "rejected_at",
-            "cancelled_at",
-            "completed_at",
-
-            "created_at",
-            "updated_at",
         ]

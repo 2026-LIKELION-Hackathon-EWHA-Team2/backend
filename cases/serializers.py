@@ -11,7 +11,6 @@ from .models import (
     CaseAgreement,
     CaseTransfer,
     CaseAgreementRevision,
-    CaseAdverseEffect,
     CaseIngredient,
     CaseChatMessage,
     CaseCollaborationRequest,
@@ -64,21 +63,6 @@ class CaseIngredientSerializer(serializers.ModelSerializer):
         )
 
 
-class CaseAdverseEffectSerializer(serializers.ModelSerializer):
-    effect_name = serializers.CharField(
-        source="get_effect_type_display",
-        read_only=True,
-    )
-
-    class Meta:
-        model = CaseAdverseEffect
-        fields = (
-            "id",
-            "effect_type",
-            "effect_name",
-        )
-
-
 class MedicalCaseDetailSerializer(serializers.ModelSerializer):
     patient_id = serializers.IntegerField(
         source="patient.id",
@@ -105,11 +89,6 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
-    adverse_effects = CaseAdverseEffectSerializer(
-        many=True,
-        read_only=True,
-    )
-
     class Meta:
         model = MedicalCase
         fields = (
@@ -122,7 +101,6 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
             "procedure_area",
             "procedure_date",
             "ingredients",
-            "adverse_effects",
             "clinician_note",
             "ai_summary",
             "status",
