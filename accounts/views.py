@@ -195,45 +195,6 @@ class PatientProfileView(APIView):
             status=status.HTTP_200_OK,
         )
 
-    def post(self, request):
-        if request.user.user_type != "PATIENT":
-            return Response(
-                {
-                    "detail": "환자 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if hasattr(
-            request.user,
-            "patient_profile",
-        ):
-            return Response(
-                {
-                    "detail": "이미 환자 프로필이 존재합니다."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = PatientProfileSerializer(
-            data=request.data,
-        )
-
-        if serializer.is_valid():
-            serializer.save(
-                user=request.user,
-            )
-
-            return Response(
-                serializer.data,
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
     def patch(self, request):
         if request.user.user_type != "PATIENT":
             return Response(

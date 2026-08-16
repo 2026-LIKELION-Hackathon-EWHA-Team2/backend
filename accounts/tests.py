@@ -47,6 +47,14 @@ class PatientProfileReadTests(APITestCase):
             ),
         )
 
+    def test_profile_creation_method_is_not_allowed(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
     def test_last_updated_uses_joined_at_without_cases(self):
         response = self.client.get(self.url)
 
