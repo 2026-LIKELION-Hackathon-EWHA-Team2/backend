@@ -538,6 +538,20 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
                 }
             )
 
+        match_request = recommendation.match_request
+        if (
+            match_request.agreed_at is None
+            or not all([
+                match_request.personal_information_provision_agreed,
+                match_request.information_items_purpose_confirmed,
+                match_request.medical_consultation_use_agreed,
+                match_request.withdrawal_right_confirmed,
+            ])
+        ):
+            raise serializers.ValidationError(
+                "병원 매칭 동의를 먼저 완료해 주세요."
+            )
+
         if CaseTransfer.objects.filter(symptom_case=symptom_case).exists():
             raise serializers.ValidationError(
                 "해당 증상 케이스의 전송 건이 이미 존재합니다."
@@ -625,10 +639,9 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
             "include_procedure_info",
             "include_adverse_effects",
             "include_clinician_note",
-            "personal_information_provision_agreed",
-            "information_items_purpose_confirmed",
-            "medical_consultation_use_agreed",
-            "withdrawal_right_confirmed",
+            "procedure_medication_agreed",
+            "adverse_effect_clinician_note_agreed",
+            "overseas_ai_processing_agreed",
             "agreed_at",
             "collaboration_request_id",
             "collaboration_request_status",
@@ -778,17 +791,14 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
 
     def get_agreements(self, obj):
         return {
-            "personal_information_provision": (
-                obj.personal_information_provision_agreed
+            "procedure_medication": (
+                obj.procedure_medication_agreed
             ),
-            "information_items_purpose": (
-                obj.information_items_purpose_confirmed
+            "adverse_effect_clinician_note": (
+                obj.adverse_effect_clinician_note_agreed
             ),
-            "medical_consultation_use": (
-                obj.medical_consultation_use_agreed
-            ),
-            "withdrawal_right": (
-                obj.withdrawal_right_confirmed
+            "overseas_ai_processing": (
+                obj.overseas_ai_processing_agreed
             ),
             "agreed_at": obj.agreed_at,
         }
@@ -798,10 +808,9 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseTransfer
         fields = (
-            "personal_information_provision_agreed",
-            "information_items_purpose_confirmed",
-            "medical_consultation_use_agreed",
-            "withdrawal_right_confirmed",
+            "procedure_medication_agreed",
+            "adverse_effect_clinician_note_agreed",
+            "overseas_ai_processing_agreed",
         )
 
     def validate(self, attrs):
@@ -811,10 +820,12 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
             )
 
         if not all([
-            attrs.get("personal_information_provision_agreed", False),
-            attrs.get("information_items_purpose_confirmed", False),
-            attrs.get("medical_consultation_use_agreed", False),
-            attrs.get("withdrawal_right_confirmed", False),
+            attrs.get("procedure_medication_agreed", False),
+            attrs.get(
+                "adverse_effect_clinician_note_agreed",
+                False,
+            ),
+            attrs.get("overseas_ai_processing_agreed", False),
         ]):
             raise serializers.ValidationError(
                 "필수 동의가 필요합니다."

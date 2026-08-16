@@ -96,6 +96,23 @@ class HospitalMatchRequest(models.Model):
         decimal_places=7,
     )
 
+    personal_information_provision_agreed = models.BooleanField(
+        default=False,
+    )
+    information_items_purpose_confirmed = models.BooleanField(
+        default=False,
+    )
+    medical_consultation_use_agreed = models.BooleanField(
+        default=False,
+    )
+    withdrawal_right_confirmed = models.BooleanField(
+        default=False,
+    )
+    agreed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     status = models.CharField(
         max_length=30,
         choices=Status.choices,

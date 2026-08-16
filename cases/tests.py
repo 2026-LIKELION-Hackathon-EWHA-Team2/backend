@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -328,6 +329,11 @@ class CaseTransferFlowTests(APITestCase):
             search_latitude="35.6762000",
             search_longitude="139.6503000",
             status=HospitalMatchRequest.Status.SELECTED,
+            personal_information_provision_agreed=True,
+            information_items_purpose_confirmed=True,
+            medical_consultation_use_agreed=True,
+            withdrawal_right_confirmed=True,
+            agreed_at=timezone.now(),
         )
         self.recommendation = HospitalRecommendation.objects.create(
             match_request=self.match_request,
@@ -469,8 +475,13 @@ class CaseTransferFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.match_request.refresh_from_db()
+        self.assertFalse(
+            self.match_request.personal_information_provision_agreed,
+        )
+        self.assertIsNone(self.match_request.agreed_at)
 
-    def test_all_four_consents_are_required(self):
+    def test_all_three_transfer_consents_are_required(self):
         create_response = self.create_transfer()
 
         response = self.client.patch(
@@ -479,14 +490,58 @@ class CaseTransferFlowTests(APITestCase):
                 kwargs={"transfer_id": create_response.data["id"]},
             ),
             {
-                "personal_information_provision_agreed": True,
-                "information_items_purpose_confirmed": True,
-                "medical_consultation_use_agreed": True,
+                "procedure_medication_agreed": True,
+                "adverse_effect_clinician_note_agreed": True,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+
+    def test_four_match_consents_are_required_before_sync(self):
+        self.match_request.personal_information_provision_agreed = False
+        self.match_request.information_items_purpose_confirmed = False
+        self.match_request.medical_consultation_use_agreed = False
+        self.match_request.withdrawal_right_confirmed = False
+        self.match_request.agreed_at = None
+        self.match_request.save()
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            self.transfer_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseTransfer.objects.exists())
+
+    def test_match_consent_does_not_create_collaboration_request(self):
+        self.match_request.personal_information_provision_agreed = False
+        self.match_request.information_items_purpose_confirmed = False
+        self.match_request.medical_consultation_use_agreed = False
+        self.match_request.withdrawal_right_confirmed = False
+        self.match_request.agreed_at = None
+        self.match_request.save()
+
+        response = self.client.patch(
+            reverse(
+                "match-request-consent",
+                kwargs={
+                    "match_request_id": self.match_request.pk,
+                },
+            ),
+            {
+                "personal_information_provision_agreed": True,
+                "information_items_purpose_confirmed": True,
+                "medical_consultation_use_agreed": True,
+                "withdrawal_right_confirmed": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["agreed_at"])
         self.assertFalse(CaseCollaborationRequest.objects.exists())
 
     def test_symptom_completes_only_after_final_agreement(self):
@@ -503,10 +558,9 @@ class CaseTransferFlowTests(APITestCase):
                 kwargs={"transfer_id": transfer_id},
             ),
             {
-                "personal_information_provision_agreed": True,
-                "information_items_purpose_confirmed": True,
-                "medical_consultation_use_agreed": True,
-                "withdrawal_right_confirmed": True,
+                "procedure_medication_agreed": True,
+                "adverse_effect_clinician_note_agreed": True,
+                "overseas_ai_processing_agreed": True,
             },
             format="json",
         )
