@@ -72,7 +72,6 @@ def get_collaboration_requests_for_user(user):
         )
         .prefetch_related(
             "medical_case__ingredients",
-            "medical_case__adverse_effects",
             "medical_case__chat_rooms",
             "medical_case__case_transfers",
         )
@@ -141,7 +140,6 @@ class MedicalCaseDetailView(APIView):
                 "partner_hospital",
             ).prefetch_related(
                 "ingredients",
-                "adverse_effects",
             ),
             id=case_id,
         )
@@ -948,12 +946,7 @@ class CaseAgreementGenerateView(APIView):
         adverse_effects = (
             case_transfer.adverse_effects
             if case_transfer is not None
-            else list(
-                medical_case.adverse_effects.values_list(
-                    "effect_type",
-                    flat=True,
-                )
-            )
+            else []
         )
 
         case_data = {

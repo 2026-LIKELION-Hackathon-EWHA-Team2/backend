@@ -113,12 +113,6 @@ class PatientProfile(models.Model):
         blank=True,
     )
 
-    # 현재 기능에서는 사용하지 않음
-    email = models.EmailField(
-        null=True,
-        blank=True,
-    )
-
     residence_country = models.CharField(
         max_length=50,
         null=True,
