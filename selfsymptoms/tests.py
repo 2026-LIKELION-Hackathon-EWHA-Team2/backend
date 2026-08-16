@@ -5,7 +5,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import HospitalProfile, PatientProfile, User
 
-from .models import PatientSymptomCase
+from .models import PatientSymptomCase, PatientSymptomImage
 
 
 class PatientSymptomCaseSubmitAPITests(APITestCase):
@@ -68,6 +68,145 @@ class PatientSymptomCaseSubmitAPITests(APITestCase):
             response.data["status"],
             PatientSymptomCase.Status.DRAFT,
         )
+
+    def test_case_can_be_completed_across_registration_steps(self):
+        create_response = self.client.post(
+            reverse("symptom-case-list"),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            create_response.data["status"],
+            PatientSymptomCase.Status.DRAFT,
+        )
+        self.assertIsNone(
+            create_response.data["diagnosed_hospital"],
+        )
+        self.assertIsNone(
+            create_response.data["diagnosis_document"],
+        )
+
+        symptom_case_id = create_response.data["symptom_case_id"]
+
+        image_response = self.client.post(
+            reverse("symptom-image-list"),
+            {
+                "symptom_case": symptom_case_id,
+                "image": SimpleUploadedFile(
+                    "symptom.gif",
+                    bytes.fromhex(
+                        "47494638396101000100800000000000ffffff"
+                        "21f90401000000002c000000000100010000"
+                        "02024401003b"
+                    ),
+                    content_type="image/gif",
+                ),
+                "display_order": 1,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            image_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        symptom_response = self.client.patch(
+            reverse(
+                "symptom-case-detail",
+                kwargs={"pk": symptom_case_id},
+            ),
+            {
+                "symptom_start_date": "2026-08-16",
+                "onset_timing": "IMMEDIATE",
+                "description": "붓기와 통증이 있습니다.",
+                "pain_level": 3,
+                "areas": [
+                    {"area_type": "FOREHEAD"},
+                ],
+                "symptom_types": [
+                    {"symptom_type": "SWELLING"},
+                    {"symptom_type": "PAIN"},
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            symptom_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        document_response = self.client.patch(
+            reverse(
+                "symptom-case-detail",
+                kwargs={"pk": symptom_case_id},
+            ),
+            {
+                "diagnosed_hospital": self.hospital.pk,
+                "diagnosis_document": SimpleUploadedFile(
+                    "diagnosis.pdf",
+                    b"diagnosis",
+                    content_type="application/pdf",
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            document_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        submit_response = self.client.post(
+            reverse(
+                "symptom-case-submit",
+                kwargs={"pk": symptom_case_id},
+            ),
+        )
+
+        self.assertEqual(
+            submit_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            submit_response.data["status"],
+            PatientSymptomCase.Status.SUBMITTED,
+        )
+        self.assertEqual(
+            PatientSymptomImage.objects.filter(
+                symptom_case_id=symptom_case_id,
+            ).count(),
+            1,
+        )
+
+    def test_empty_draft_cannot_be_submitted(self):
+        create_response = self.client.post(
+            reverse("symptom-case-list"),
+            {},
+            format="json",
+        )
+
+        symptom_case_id = create_response.data["symptom_case_id"]
+        submit_response = self.client.post(
+            reverse(
+                "symptom-case-submit",
+                kwargs={"pk": symptom_case_id},
+            ),
+        )
+
+        self.assertEqual(
+            submit_response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn("diagnosed_hospital", submit_response.data)
+        self.assertIn("diagnosis_document", submit_response.data)
+        self.assertIn("symptoms", submit_response.data)
 
     def test_submit_moves_draft_to_submitted(self):
         symptom_case = self.create_case()

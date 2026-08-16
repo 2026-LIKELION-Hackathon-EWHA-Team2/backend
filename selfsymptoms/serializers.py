@@ -219,17 +219,19 @@ class PatientSymptomCaseSerializer(
 
     diagnosed_hospital = serializers.PrimaryKeyRelatedField(
         queryset=HospitalProfile.objects.all(),
-        required=True,
+        required=False,
+        allow_null=True,
     )
 
     diagnosed_hospital_name = serializers.CharField(
         source="diagnosed_hospital.user.name",
         read_only=True,
+        allow_null=True,
     )
 
     diagnosis_document = serializers.FileField(
-        required=True,
-        allow_null=False,
+        required=False,
+        allow_null=True,
     )
 
     diagnosis_document_url = serializers.SerializerMethodField(
