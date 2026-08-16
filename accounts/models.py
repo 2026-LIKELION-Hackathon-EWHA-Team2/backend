@@ -81,6 +81,26 @@ class PatientProfile(models.Model):
         blank=True,
     )
 
+    city = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+    )
+
+    latitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=7,
+        null=True,
+        blank=True,
+    )
+
+    longitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=7,
+        null=True,
+        blank=True,
+    )
+
     phone = models.CharField(
         max_length=30,
         null=True,
@@ -89,12 +109,6 @@ class PatientProfile(models.Model):
 
     address = models.CharField(
         max_length=255,
-        null=True,
-        blank=True,
-    )
-
-    # 현재 기능에서는 사용하지 않음
-    email = models.EmailField(
         null=True,
         blank=True,
     )

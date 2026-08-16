@@ -21,17 +21,10 @@ def analyze_required_specialty(
     # 증상 부위
     # -------------------------
 
-    areas = []
-
-    for area in symptom_case.areas.all():
-        if area.area_type == "OTHER":
-            areas.append(
-                area.custom_area
-            )
-        else:
-            areas.append(
-                area.get_area_type_display()
-            )
+    areas = [
+        area.get_area_type_display()
+        for area in symptom_case.areas.all()
+    ]
 
     # -------------------------
     # 증상 종류

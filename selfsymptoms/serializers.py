@@ -136,7 +136,6 @@ class PatientSymptomAreaSerializer(
             "symptom_area_id",
             "area_type",
             "area_name",
-            "custom_area",
             "created_at",
         ]
 
@@ -145,39 +144,6 @@ class PatientSymptomAreaSerializer(
             "area_name",
             "created_at",
         ]
-
-    def validate(self, attrs):
-        area_type = attrs.get("area_type")
-        custom_area = attrs.get("custom_area")
-
-        if (
-            area_type == PatientSymptomArea.AreaType.OTHER
-            and not custom_area
-        ):
-            raise serializers.ValidationError(
-                {
-                    "custom_area": (
-                        "기타 부위를 선택한 경우 "
-                        "부위를 직접 입력해야 합니다."
-                    )
-                }
-            )
-
-        if (
-            area_type != PatientSymptomArea.AreaType.OTHER
-            and custom_area
-        ):
-            raise serializers.ValidationError(
-                {
-                    "custom_area": (
-                        "기타 부위를 선택한 경우에만 "
-                        "직접 입력할 수 있습니다."
-                    )
-                }
-            )
-
-        return attrs
-
 
 class PatientSymptomTypeSerializer(
     serializers.ModelSerializer
@@ -253,17 +219,19 @@ class PatientSymptomCaseSerializer(
 
     diagnosed_hospital = serializers.PrimaryKeyRelatedField(
         queryset=HospitalProfile.objects.all(),
-        required=True,
+        required=False,
+        allow_null=True,
     )
 
     diagnosed_hospital_name = serializers.CharField(
         source="diagnosed_hospital.user.name",
         read_only=True,
+        allow_null=True,
     )
 
     diagnosis_document = serializers.FileField(
-        required=True,
-        allow_null=False,
+        required=False,
+        allow_null=True,
     )
 
     diagnosis_document_url = serializers.SerializerMethodField(

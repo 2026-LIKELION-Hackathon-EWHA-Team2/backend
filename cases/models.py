@@ -79,36 +79,6 @@ class CaseIngredient(models.Model):
                 name="unique_case_ingredient",
             )
         ]
-
-
-class CaseAdverseEffect(models.Model):
-    class EffectType(models.TextChoices):
-        SWELLING = "SWELLING", "부종"
-        INFLAMMATION = "INFLAMMATION", "염증"
-        PAIN = "PAIN", "통증"
-        REDNESS = "REDNESS", "붉어짐"
-        INFECTION = "INFECTION", "감염 의심"
-        PIGMENTATION = "PIGMENTATION", "색소침착"
-
-    medical_case = models.ForeignKey(
-        MedicalCase,
-        on_delete=models.CASCADE,
-        related_name="adverse_effects",
-    )
-
-    effect_type = models.CharField(
-        max_length=30,
-        choices=EffectType.choices,
-    )
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["medical_case", "effect_type"],
-                name="unique_case_adverse_effect",
-            )
-        ]
-
 class CaseCollaborationRequest(models.Model):
     class Status(models.TextChoices):
         REQUESTED = "REQUESTED", "협진 요청"
@@ -274,6 +244,35 @@ class CaseChatMessageTranslation(models.Model):
                     "target_language",
                 ),
                 name="unique_message_target_language",
+            ),
+        ]
+
+
+class CaseChatReadState(models.Model):
+    chat_room = models.ForeignKey(
+        CaseChatRoom,
+        on_delete=models.CASCADE,
+        related_name="read_states",
+    )
+    hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="case_chat_read_states",
+    )
+    last_read_message = models.ForeignKey(
+        CaseChatMessage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="read_by_states",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("chat_room", "hospital"),
+                name="unique_chat_room_hospital_read_state",
             ),
         ]
 

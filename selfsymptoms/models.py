@@ -7,12 +7,8 @@ from accounts.models import PatientProfile
 
 class PatientSymptomCase(models.Model):
     class OnsetTiming(models.TextChoices):
-        IMMEDIATE = "IMMEDIATE", "즉시"
-        AFTER_1_DAY = "AFTER_1_DAY", "1일 후"
-        AFTER_2_3_DAYS = "AFTER_2_3_DAYS", "2~3일 후"
-        AFTER_4_7_DAYS = "AFTER_4_7_DAYS", "4~7일 후"
-        AFTER_1_WEEK = "AFTER_1_WEEK", "1주 이후"
-        UNKNOWN = "UNKNOWN", "정확히 모름"
+        IMMEDIATE = "IMMEDIATE", "시술 직후"
+        AFTER_DAYS = "AFTER_DAYS", "시술 후 며칠 뒤"
 
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "작성 중"
@@ -193,7 +189,6 @@ class PatientSymptomArea(models.Model):
         HAND = "HAND", "손"
         LEG = "LEG", "다리"
         FOOT = "FOOT", "발"
-        OTHER = "OTHER", "기타"
 
     symptom_area_id = models.BigAutoField(
         primary_key=True,
@@ -208,12 +203,6 @@ class PatientSymptomArea(models.Model):
     area_type = models.CharField(
         max_length=30,
         choices=AreaType.choices,
-    )
-
-    custom_area = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
     )
 
     created_at = models.DateTimeField(
@@ -233,32 +222,7 @@ class PatientSymptomArea(models.Model):
             )
         ]
 
-    def clean(self):
-        if self.area_type == self.AreaType.OTHER:
-            if not self.custom_area:
-                raise ValidationError(
-                    {
-                        "custom_area": (
-                            "기타 부위를 선택한 경우 "
-                            "부위를 직접 입력해야 합니다."
-                        )
-                    }
-                )
-        else:
-            if self.custom_area:
-                raise ValidationError(
-                    {
-                        "custom_area": (
-                            "기타 부위를 선택한 경우에만 "
-                            "직접 입력할 수 있습니다."
-                        )
-                    }
-                )
-
     def __str__(self):
-        if self.area_type == self.AreaType.OTHER:
-            return self.custom_area
-
         return self.get_area_type_display()
 
 
@@ -267,8 +231,10 @@ class PatientSymptomType(models.Model):
         REDNESS = "REDNESS", "붉음"
         SWELLING = "SWELLING", "붓기"
         PAIN = "PAIN", "통증"
-        BRUISING = "BRUISING", "멍"
-        BLEEDING = "BLEEDING", "출혈"
+        BRUISING_BLEEDING = (
+            "BRUISING_BLEEDING",
+            "멍/출혈",
+        )
         DISCHARGE = "DISCHARGE", "분비물"
         ITCHING = "ITCHING", "가려움"
         HEAT = "HEAT", "열감"

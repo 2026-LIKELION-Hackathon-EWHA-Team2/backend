@@ -14,6 +14,7 @@ from accounts.models import (
     User,
 )
 from accounts.specialties import SpecialtyCode
+from matching.models import HospitalMatchRequest
 from selfsymptoms.models import PatientSymptomCase
 
 from .ai_service import analyze_required_specialty
@@ -115,6 +116,7 @@ class HospitalMatchRequestStatusTests(APITestCase):
     def payload(self, symptom_case):
         return {
             "symptom_case": symptom_case.pk,
+            "location_source": "CUSTOM",
             "search_country": "JP",
             "search_latitude": "35.6762000",
             "search_longitude": "139.6503000",
@@ -158,4 +160,44 @@ class HospitalMatchRequestStatusTests(APITestCase):
         self.assertEqual(
             symptom_case.status,
             PatientSymptomCase.Status.SUBMITTED,
+        )
+    @patch("matching.views.generate_recommendations")
+    def test_profile_location_is_copied_to_match_request(
+        self,
+        generate,
+    ):
+        generate.return_value = []
+
+        self.patient.residence_country = "KR"
+        self.patient.city = "Seoul"
+        self.patient.address = "Gangnam-gu"
+        self.patient.latitude = "37.4979000"
+        self.patient.longitude = "127.0276000"
+        self.patient.save()
+
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient,
+            status=PatientSymptomCase.Status.SUBMITTED,
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "symptom_case": symptom_case.pk,
+                "location_source": "PROFILE",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        match_request = HospitalMatchRequest.objects.get()
+        self.assertEqual(match_request.search_country, "KR")
+        self.assertEqual(match_request.search_city, "Seoul")
+        self.assertEqual(
+            str(match_request.search_latitude),
+            "37.4979000",
         )

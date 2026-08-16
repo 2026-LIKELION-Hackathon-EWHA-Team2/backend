@@ -44,6 +44,9 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "phone",
             "address",
             "residence_country",
+            "city",
+            "latitude",
+            "longitude",
         )
 
         read_only_fields = (

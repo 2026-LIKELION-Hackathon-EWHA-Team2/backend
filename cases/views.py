@@ -1,6 +1,7 @@
+import re
 from datetime import date
 
-from django.db.models import Q
+from django.db.models import Max, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import (
@@ -25,6 +26,8 @@ from .models import (
     CaseAgreementRevision,
     CaseIngredient,
     CaseChatMessageTranslation,
+    CaseChatMessage,
+    CaseChatReadState,
     CaseChatRoom,
     CaseCollaborationRequest,
     MedicalCase,
@@ -47,6 +50,7 @@ from .serializers import (
     CaseAgreementSerializer,
     CaseAgreementRevisionSerializer,
     CaseChatMessageSerializer,
+    CaseChatRoomListSerializer,
     CaseCollaborationRequestSerializer,
     MedicalCaseDetailSerializer,
 )
@@ -72,12 +76,33 @@ def get_collaboration_requests_for_user(user):
         )
         .prefetch_related(
             "medical_case__ingredients",
-            "medical_case__adverse_effects",
             "medical_case__chat_rooms",
             "medical_case__case_transfers",
         )
         .order_by("-requested_at")
     )
+
+
+def get_received_collaboration_requests_for_user(user):
+    return (
+        CaseCollaborationRequest.objects
+        .filter(
+            medical_case__partner_hospital=user,
+        )
+        .select_related(
+            "medical_case",
+            "medical_case__patient",
+            "medical_case__origin_hospital",
+            "medical_case__partner_hospital",
+        )
+        .prefetch_related(
+            "medical_case__ingredients",
+            "medical_case__chat_rooms",
+            "medical_case__case_transfers",
+        )
+        .order_by("-requested_at")
+    )
+
 
 def get_agreement_chat_room(request, case_id, room_id):
     if request.user.user_type != "HOSPITAL":
@@ -141,7 +166,6 @@ class MedicalCaseDetailView(APIView):
                 "partner_hospital",
             ).prefetch_related(
                 "ingredients",
-                "adverse_effects",
             ),
             id=case_id,
         )
@@ -355,7 +379,7 @@ class CaseCollaborationRequestListView(
     }
 
     def get_queryset(self):
-        queryset = get_collaboration_requests_for_user(
+        queryset = get_received_collaboration_requests_for_user(
             self.request.user,
         )
 
@@ -363,24 +387,76 @@ class CaseCollaborationRequestListView(
             self.request.query_params.get("status")
         )
 
-        if status_value is None:
+        if status_value is not None:
+            status_value = status_value.upper()
+
+            if status_value not in self.ALLOWED_STATUSES:
+                raise ValidationError(
+                    {
+                        "status": (
+                            "현재 조회 가능한 상태는 "
+                            "REQUESTED, ACCEPTED 또는 "
+                            "COMPLETED입니다."
+                        )
+                    }
+                )
+
+            queryset = queryset.filter(status=status_value)
+
+        search = self.request.query_params.get("search", "").strip()
+        if not search:
             return queryset
 
-        status_value = status_value.upper()
-
-        if status_value not in self.ALLOWED_STATUSES:
-            raise ValidationError(
-                {
-                    "status": (
-                        "현재 조회 가능한 상태는 "
-                        "REQUESTED, ACCEPTED 또는 "
-                        "COMPLETED입니다."
-                    )
-                }
+        search_filter = Q(
+            medical_case__patient__name__icontains=search,
+        )
+        case_id_match = re.search(r"(\d+)$", search)
+        if case_id_match is not None:
+            search_filter |= Q(
+                medical_case_id=int(case_id_match.group(1)),
             )
 
-        return queryset.filter(
-            status=status_value,
+        return queryset.filter(search_filter)
+
+
+class HospitalDashboardView(APIView):
+    permission_classes = [IsHospital]
+
+    def get(self, request):
+        today = timezone.localdate()
+        received_requests = get_received_collaboration_requests_for_user(
+            request.user,
+        )
+
+        today_received = received_requests.filter(
+            requested_at__date=today,
+        )
+        ongoing_collaborations = received_requests.filter(
+            status=CaseCollaborationRequest.Status.ACCEPTED,
+        ).order_by("-accepted_at", "-requested_at")
+
+        return Response(
+            {
+                "date": today,
+                "today_summary": {
+                    "received_count": today_received.count(),
+                    "under_review_count": today_received.filter(
+                        status=CaseCollaborationRequest.Status.REQUESTED,
+                    ).count(),
+                    "completed_count": received_requests.filter(
+                        status=CaseCollaborationRequest.Status.COMPLETED,
+                        completed_at__date=today,
+                    ).count(),
+                },
+                "ongoing_collaborations": (
+                    CaseCollaborationRequestSerializer(
+                        ongoing_collaborations,
+                        many=True,
+                        context={"request": request},
+                    ).data
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
 
 
@@ -507,6 +583,15 @@ class CaseCollaborationRequestAcceptView(APIView):
                         "비활성화된 상태입니다."
                     )
                 }
+            )
+
+        for hospital_id in {
+            medical_case.origin_hospital_id,
+            request.user.id,
+        }:
+            CaseChatReadState.objects.get_or_create(
+                chat_room=chat_room,
+                hospital_id=hospital_id,
             )
 
         collaboration_request.status = (
@@ -698,6 +783,122 @@ class CaseAgreementDetailView(APIView):
         response_data["changed_fields"] = changed_fields
 
         return Response(response_data)
+
+
+class CaseChatRoomListView(generics.ListAPIView):
+    permission_classes = [IsHospital]
+    serializer_class = CaseChatRoomListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            CaseChatRoom.objects
+            .filter(
+                Q(medical_case__origin_hospital=user)
+                | Q(partner_hospital=user),
+                is_active=True,
+            )
+            .select_related(
+                "medical_case",
+                "medical_case__patient",
+                "medical_case__origin_hospital",
+                "medical_case__partner_hospital",
+                "medical_case__collaboration_request",
+                "partner_hospital",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "messages",
+                    queryset=(
+                        CaseChatMessage.objects
+                        .select_related("sender")
+                        .prefetch_related("translations")
+                        .order_by("id")
+                    ),
+                    to_attr="chat_list_messages",
+                ),
+                Prefetch(
+                    "read_states",
+                    queryset=CaseChatReadState.objects.filter(
+                        hospital=user,
+                    ),
+                    to_attr="viewer_read_states",
+                ),
+            )
+            .annotate(latest_message_at=Max("messages__created_at"))
+            .order_by("-latest_message_at", "-created_at")
+            .distinct()
+        )
+
+
+class CaseChatRoomReadView(APIView):
+    permission_classes = [IsHospital]
+
+    @transaction.atomic
+    def post(self, request, room_id):
+        chat_room = get_object_or_404(
+            CaseChatRoom.objects.select_related(
+                "medical_case",
+                "medical_case__origin_hospital",
+                "partner_hospital",
+            ),
+            id=room_id,
+            is_active=True,
+        )
+
+        if request.user.id not in {
+            chat_room.medical_case.origin_hospital_id,
+            chat_room.partner_hospital_id,
+        }:
+            raise PermissionDenied(
+                "해당 협진 채팅방에 접근할 권한이 없습니다."
+            )
+
+        last_read_message_id = request.data.get("last_read_message_id")
+        if last_read_message_id is None:
+            target_message = chat_room.messages.order_by("-id").first()
+        else:
+            target_message = get_object_or_404(
+                chat_room.messages,
+                id=last_read_message_id,
+            )
+
+        read_state, _ = (
+            CaseChatReadState.objects
+            .select_for_update()
+            .get_or_create(
+                chat_room=chat_room,
+                hospital=request.user,
+            )
+        )
+
+        if (
+            target_message is not None
+            and (
+                read_state.last_read_message_id is None
+                or target_message.id > read_state.last_read_message_id
+            )
+        ):
+            read_state.last_read_message = target_message
+            read_state.save(update_fields=["last_read_message", "updated_at"])
+
+        remaining_unread_count = chat_room.messages.exclude(
+            sender=request.user,
+        )
+        if read_state.last_read_message_id is not None:
+            remaining_unread_count = remaining_unread_count.filter(
+                id__gt=read_state.last_read_message_id,
+            )
+
+        return Response(
+            {
+                "room_id": chat_room.id,
+                "last_read_message_id": read_state.last_read_message_id,
+                "read_at": read_state.updated_at,
+                "unread_count": remaining_unread_count.count(),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class CaseAgreementReviewView(APIView):
     permission_classes = [IsAuthenticated]
@@ -948,12 +1149,7 @@ class CaseAgreementGenerateView(APIView):
         adverse_effects = (
             case_transfer.adverse_effects
             if case_transfer is not None
-            else list(
-                medical_case.adverse_effects.values_list(
-                    "effect_type",
-                    flat=True,
-                )
-            )
+            else []
         )
 
         case_data = {
@@ -1048,7 +1244,7 @@ class CaseTransferListCreateView(generics.CreateAPIView):
             else None,
             "pain_level": symptom_case.pain_level,
             "areas": [
-                area.custom_area or area.get_area_type_display()
+                area.get_area_type_display()
                 for area in symptom_case.areas.all()
             ],
             "types": [

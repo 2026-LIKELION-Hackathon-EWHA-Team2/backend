@@ -96,6 +96,23 @@ class HospitalMatchRequest(models.Model):
         decimal_places=7,
     )
 
+    personal_information_provision_agreed = models.BooleanField(
+        default=False,
+    )
+    information_items_purpose_confirmed = models.BooleanField(
+        default=False,
+    )
+    medical_consultation_use_agreed = models.BooleanField(
+        default=False,
+    )
+    withdrawal_right_confirmed = models.BooleanField(
+        default=False,
+    )
+    agreed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     status = models.CharField(
         max_length=30,
         choices=Status.choices,
@@ -191,81 +208,3 @@ class HospitalRecommendation(models.Model):
                 name="unique_recommendation_rank",
             ),
         ]
-
-
-class HospitalConnectionRequest(models.Model):
-
-    class Status(models.TextChoices):
-        REQUESTED = "REQUESTED", "요청"
-        ACCEPTED = "ACCEPTED", "승인"
-        REJECTED = "REJECTED", "거절"
-        CANCELLED = "CANCELLED", "취소"
-        COMPLETED = "COMPLETED", "완료"
-
-    connection_request_id = models.BigAutoField(
-        primary_key=True,
-    )
-
-    recommendation = models.ForeignKey(
-        HospitalRecommendation,
-        on_delete=models.CASCADE,
-        related_name="connection_requests",
-    )
-
-    patient = models.ForeignKey(
-        PatientProfile,
-        on_delete=models.CASCADE,
-        related_name="connection_requests",
-    )
-
-    hospital = models.ForeignKey(
-        HospitalProfile,
-        on_delete=models.CASCADE,
-        related_name="connection_requests",
-    )
-
-    status = models.CharField(
-        max_length=30,
-        choices=Status.choices,
-        default=Status.REQUESTED,
-    )
-
-    request_message = models.TextField(
-        null=True,
-        blank=True,
-    )
-
-    requested_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    accepted_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
-    rejected_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
-    cancelled_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
-    completed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
-
-    class Meta:
-        db_table = "HOSPITAL_CONNECTION_REQUEST"

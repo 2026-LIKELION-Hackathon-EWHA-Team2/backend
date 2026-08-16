@@ -1,9 +1,10 @@
+from django.utils import timezone
 from rest_framework import serializers
 
+from accounts.serializers import MedicalSpecialtySerializer
 from accounts.models import HospitalProfile
 
 from .models import (
-    HospitalConnectionRequest,
     HospitalMatchRequest,
     HospitalRecommendation,
 )
@@ -17,7 +18,10 @@ class HospitalSimpleSerializer(
         read_only=True,
     )
 
-    specialties = serializers.SerializerMethodField()
+    specialties = MedicalSpecialtySerializer(
+        many = True,
+        read_only=True,
+    )
 
     collaboration_count = serializers.SerializerMethodField()
 
@@ -47,17 +51,6 @@ class HospitalSimpleSerializer(
             "specialties",
             "collaboration_count",
         ]
-
-    def get_specialties(
-        self,
-        obj,
-    ):
-        return list(
-            obj.specialties.values_list(
-                "specialty_name",
-                flat=True,
-            )
-        )
 
     def get_collaboration_count(
         self,
@@ -91,6 +84,39 @@ class HospitalMatchRequestSerializer(
         read_only=True,
     )
 
+    search_country = serializers.CharField(
+        max_length=50,
+        required=False,
+    )
+
+    search_city = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    search_address = serializers.CharField(
+            max_length=255,
+            required=False,
+            allow_blank=True,
+            allow_null=True,
+        )
+
+    search_latitude = serializers.DecimalField(
+            max_digits=10,
+            decimal_places=7,
+            required=False,
+            allow_null=True,
+        )
+
+    search_longitude = serializers.DecimalField(
+            max_digits=10,
+            decimal_places=7,
+            required=False,
+            allow_null=True,
+        )
+
     class Meta:
         model = HospitalMatchRequest
 
@@ -116,6 +142,12 @@ class HospitalMatchRequestSerializer(
             "search_latitude",
             "search_longitude",
 
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+            "agreed_at",
+
             "status",
 
             "created_at",
@@ -127,6 +159,11 @@ class HospitalMatchRequestSerializer(
             "patient_id",
             "required_specialty",
             "required_specialty_code",
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+            "agreed_at",
             "status",
             "created_at",
             "updated_at",
@@ -166,7 +203,109 @@ class HospitalMatchRequestSerializer(
                 "최소 한 개의 추천 기준을 선택해야 합니다."
             )
 
+        location_source = attrs.get(
+            "location_source",
+            HospitalMatchRequest.LocationSource.PROFILE,
+        )
+
+        if location_source == HospitalMatchRequest.LocationSource.PROFILE:
+            patient = self.context.get("patient")
+            if patient is None:
+                raise serializers.ValidationError(
+                    {
+                        "location_source": (
+                            "환자 프로필을 확인할 수 없습니다."
+                        )
+                    }
+                )
+            profile_errors = {}
+
+            if not patient.residence_country : 
+                profile_errors["search_country"] = (
+                    "프로필에 거주 국가를 등록해 주세요."
+                )
+
+            if patient.latitude is None or patient.longitude is None:
+                profile_errors["search_latitude"] = (
+                    "프로필에 거주지 좌표를 등록해 주세요."
+                )
+                profile_errors["search_longitude"] = (
+                    "프로필에 거주지 좌표를 등록해 주세요."
+                )
+            if profile_errors:
+                raise serializers.ValidationError(
+                    profile_errors
+            )
+
+            # 클라이언트가 보낸 search_*보다 프로필 값을 우선합니다.
+            attrs["search_country"] = (
+                patient.residence_country
+            )
+            attrs["search_city"] = patient.city
+            attrs["search_address"] = patient.address
+            attrs["search_latitude"] = patient.latitude
+            attrs["search_longitude"] = patient.longitude
+
+        elif location_source == HospitalMatchRequest.LocationSource.CUSTOM:
+            custom_errors = {}
+
+            if not attrs.get("search_country"):
+                custom_errors["search_country"] = (
+                    "직접 위치 사용 시 국가가 필요합니다."
+                )
+
+            if attrs.get("search_latitude") is None:
+                custom_errors["search_latitude"] = (
+                    "직접 위치 사용 시 위도가 필요합니다."
+                )
+
+            if attrs.get("search_longitude") is None:
+                custom_errors["search_longitude"] = (
+                    "직접 위치 사용 시 경도가 필요합니다."
+                )
+
+            if custom_errors:
+                raise serializers.ValidationError(
+                    custom_errors
+                )
         return attrs
+
+
+class HospitalMatchConsentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HospitalMatchRequest
+        fields = (
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+        )
+
+    def validate(self, attrs):
+        if self.instance.status != HospitalMatchRequest.Status.SELECTED:
+            raise serializers.ValidationError(
+                "병원을 선택한 뒤 동의할 수 있습니다."
+            )
+
+        if not all([
+            attrs.get("personal_information_provision_agreed", False),
+            attrs.get("information_items_purpose_confirmed", False),
+            attrs.get("medical_consultation_use_agreed", False),
+            attrs.get("withdrawal_right_confirmed", False),
+        ]):
+            raise serializers.ValidationError(
+                "병원 매칭을 위한 필수 동의가 필요합니다."
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        instance.agreed_at = timezone.now()
+        instance.save()
+        return instance
 
 
 class HospitalRecommendationSerializer(
@@ -197,49 +336,4 @@ class HospitalRecommendationSerializer(
             "is_selected",
 
             "created_at",
-        ]
-
-
-class HospitalConnectionRequestSerializer(
-    serializers.ModelSerializer
-):
-    hospital = HospitalSimpleSerializer(
-        read_only=True,
-    )
-
-    class Meta:
-        model = HospitalConnectionRequest
-
-        fields = [
-            "connection_request_id",
-
-            "recommendation",
-            "hospital",
-
-            "status",
-            "request_message",
-
-            "requested_at",
-            "accepted_at",
-            "rejected_at",
-            "cancelled_at",
-            "completed_at",
-
-            "created_at",
-            "updated_at",
-        ]
-
-        read_only_fields = [
-            "connection_request_id",
-            "hospital",
-            "status",
-
-            "requested_at",
-            "accepted_at",
-            "rejected_at",
-            "cancelled_at",
-            "completed_at",
-
-            "created_at",
-            "updated_at",
         ]
