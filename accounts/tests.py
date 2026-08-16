@@ -7,6 +7,60 @@ from .models import HospitalProfile, MedicalSpecialty, User
 from .specialties import SpecialtyCode
 
 
+class PatientSignUpConsentTests(APITestCase):
+    def setUp(self):
+        self.signup_url = reverse("accounts:patient-signup")
+        self.base_payload = {
+            "name": "Anna Kim",
+            "login_id": "anna-kim",
+            "password": "StrongPassword!2026",
+            "terms_agreed": True,
+            "privacy_agreed": True,
+            "overseas_info_agreed": True,
+            "address": "Tokyo",
+            "phone": "+81-3-1234-5678",
+            "birth_date": "1992-05-20",
+            "passport_number": "M12345678",
+        }
+
+    def test_overseas_transfer_consent_is_required(self):
+        response = self.client.post(
+            self.signup_url,
+            self.base_payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("overseas_transfer_agreed", response.data)
+
+    def test_overseas_transfer_consent_must_be_true(self):
+        response = self.client.post(
+            self.signup_url,
+            {
+                **self.base_payload,
+                "overseas_transfer_agreed": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("overseas_transfer_agreed", response.data)
+
+    def test_patient_signup_saves_overseas_transfer_consent(self):
+        response = self.client.post(
+            self.signup_url,
+            {
+                **self.base_payload,
+                "overseas_transfer_agreed": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username="anna-kim")
+        self.assertTrue(user.overseas_transfer_agreed)
+
+
 class HospitalSignUpSpecialtyTests(APITestCase):
     def setUp(self):
         self.signup_url = reverse("accounts:hospital-signup")

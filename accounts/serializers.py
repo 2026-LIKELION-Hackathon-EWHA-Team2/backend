@@ -295,6 +295,10 @@ class BaseSignUpSerializer(serializers.ModelSerializer):
 class PatientSignUpSerializer(
     BaseSignUpSerializer
 ):
+    overseas_transfer_agreed = serializers.BooleanField(
+        write_only=True,
+    )
+
     address = serializers.CharField(
         max_length=255,
         write_only=True,
@@ -317,11 +321,26 @@ class PatientSignUpSerializer(
     class Meta(BaseSignUpSerializer.Meta):
         fields = (
             *BaseSignUpSerializer.Meta.fields,
+            "overseas_transfer_agreed",
             "address",
             "phone",
             "birth_date",
             "passport_number",
         )
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        if not attrs.get("overseas_transfer_agreed"):
+            raise serializers.ValidationError(
+                {
+                    "overseas_transfer_agreed": (
+                        "개인정보 국외 이전 동의는 필수입니다."
+                    )
+                }
+            )
+
+        return attrs
 
     @transaction.atomic
     def create(self, validated_data):

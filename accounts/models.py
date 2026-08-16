@@ -43,6 +43,10 @@ class User(AbstractUser):
         default=False,
     )
 
+    overseas_transfer_agreed = models.BooleanField(
+        default=False,
+    )
+
     # 선택 동의
     marketing_agreed = models.BooleanField(
         default=False,
