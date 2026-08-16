@@ -58,7 +58,11 @@ class HospitalMatchRequestCreateView(APIView):
 
         serializer = (
             HospitalMatchRequestSerializer(
-                data=request.data
+                data=request.data,
+                context={
+                    "request": request,
+                    "patient": patient,
+                },
             )
         )
 
