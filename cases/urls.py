@@ -7,6 +7,8 @@ from .views import (
     CaseAgreementRevisionListView,
     CaseAgreementRevisionRequestView,
     CaseChatMessageListCreateView,
+    CaseChatRoomListView,
+    CaseChatRoomReadView,
     CaseCollaborationRequestAcceptView,
     CaseCollaborationRequestDetailView,
     CaseCollaborationRequestListView,
@@ -23,6 +25,16 @@ from .views import (
 
 
 urlpatterns = [
+    path(
+        "chat/rooms/",
+        CaseChatRoomListView.as_view(),
+        name="case-chat-room-list",
+    ),
+    path(
+        "chat/rooms/<int:room_id>/read/",
+        CaseChatRoomReadView.as_view(),
+        name="case-chat-room-read",
+    ),
     path(
         "hospital/dashboard/",
         HospitalDashboardView.as_view(),

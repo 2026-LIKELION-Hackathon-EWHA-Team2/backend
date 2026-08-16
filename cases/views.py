@@ -1,7 +1,7 @@
 import re
 from datetime import date
 
-from django.db.models import Q
+from django.db.models import Max, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import (
@@ -26,6 +26,8 @@ from .models import (
     CaseAgreementRevision,
     CaseIngredient,
     CaseChatMessageTranslation,
+    CaseChatMessage,
+    CaseChatReadState,
     CaseChatRoom,
     CaseCollaborationRequest,
     MedicalCase,
@@ -48,6 +50,7 @@ from .serializers import (
     CaseAgreementSerializer,
     CaseAgreementRevisionSerializer,
     CaseChatMessageSerializer,
+    CaseChatRoomListSerializer,
     CaseCollaborationRequestSerializer,
     MedicalCaseDetailSerializer,
 )
@@ -582,6 +585,15 @@ class CaseCollaborationRequestAcceptView(APIView):
                 }
             )
 
+        for hospital_id in {
+            medical_case.origin_hospital_id,
+            request.user.id,
+        }:
+            CaseChatReadState.objects.get_or_create(
+                chat_room=chat_room,
+                hospital_id=hospital_id,
+            )
+
         collaboration_request.status = (
             CaseCollaborationRequest.Status.ACCEPTED
         )
@@ -771,6 +783,122 @@ class CaseAgreementDetailView(APIView):
         response_data["changed_fields"] = changed_fields
 
         return Response(response_data)
+
+
+class CaseChatRoomListView(generics.ListAPIView):
+    permission_classes = [IsHospital]
+    serializer_class = CaseChatRoomListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            CaseChatRoom.objects
+            .filter(
+                Q(medical_case__origin_hospital=user)
+                | Q(partner_hospital=user),
+                is_active=True,
+            )
+            .select_related(
+                "medical_case",
+                "medical_case__patient",
+                "medical_case__origin_hospital",
+                "medical_case__partner_hospital",
+                "medical_case__collaboration_request",
+                "partner_hospital",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "messages",
+                    queryset=(
+                        CaseChatMessage.objects
+                        .select_related("sender")
+                        .prefetch_related("translations")
+                        .order_by("id")
+                    ),
+                    to_attr="chat_list_messages",
+                ),
+                Prefetch(
+                    "read_states",
+                    queryset=CaseChatReadState.objects.filter(
+                        hospital=user,
+                    ),
+                    to_attr="viewer_read_states",
+                ),
+            )
+            .annotate(latest_message_at=Max("messages__created_at"))
+            .order_by("-latest_message_at", "-created_at")
+            .distinct()
+        )
+
+
+class CaseChatRoomReadView(APIView):
+    permission_classes = [IsHospital]
+
+    @transaction.atomic
+    def post(self, request, room_id):
+        chat_room = get_object_or_404(
+            CaseChatRoom.objects.select_related(
+                "medical_case",
+                "medical_case__origin_hospital",
+                "partner_hospital",
+            ),
+            id=room_id,
+            is_active=True,
+        )
+
+        if request.user.id not in {
+            chat_room.medical_case.origin_hospital_id,
+            chat_room.partner_hospital_id,
+        }:
+            raise PermissionDenied(
+                "해당 협진 채팅방에 접근할 권한이 없습니다."
+            )
+
+        last_read_message_id = request.data.get("last_read_message_id")
+        if last_read_message_id is None:
+            target_message = chat_room.messages.order_by("-id").first()
+        else:
+            target_message = get_object_or_404(
+                chat_room.messages,
+                id=last_read_message_id,
+            )
+
+        read_state, _ = (
+            CaseChatReadState.objects
+            .select_for_update()
+            .get_or_create(
+                chat_room=chat_room,
+                hospital=request.user,
+            )
+        )
+
+        if (
+            target_message is not None
+            and (
+                read_state.last_read_message_id is None
+                or target_message.id > read_state.last_read_message_id
+            )
+        ):
+            read_state.last_read_message = target_message
+            read_state.save(update_fields=["last_read_message", "updated_at"])
+
+        remaining_unread_count = chat_room.messages.exclude(
+            sender=request.user,
+        )
+        if read_state.last_read_message_id is not None:
+            remaining_unread_count = remaining_unread_count.filter(
+                id__gt=read_state.last_read_message_id,
+            )
+
+        return Response(
+            {
+                "room_id": chat_room.id,
+                "last_read_message_id": read_state.last_read_message_id,
+                "read_at": read_state.updated_at,
+                "unread_count": remaining_unread_count.count(),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class CaseAgreementReviewView(APIView):
     permission_classes = [IsAuthenticated]

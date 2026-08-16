@@ -14,6 +14,8 @@ from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 from .models import (
     CaseAgreement,
     CaseChatMessage,
+    CaseChatMessageTranslation,
+    CaseChatReadState,
     CaseChatRoom,
     CaseCollaborationRequest,
     CaseTransfer,
@@ -247,6 +249,152 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             [item["id"] for item in response.data["ongoing_collaborations"]],
             [ongoing.id],
         )
+
+
+class CaseChatRoomListAndReadTests(APITestCase):
+    def setUp(self):
+        self.patient = User.objects.create_user(
+            username="chat-list-patient",
+            password="TestPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.origin = User.objects.create_user(
+            username="chat-list-origin",
+            password="TestPassword!2026",
+            name="Seoul Beauty Clinic",
+            user_type=User.UserType.HOSPITAL,
+            preferred_language="ko",
+        )
+        self.partner = User.objects.create_user(
+            username="chat-list-partner",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+            preferred_language="ja",
+        )
+        self.outsider = User.objects.create_user(
+            username="chat-list-outsider",
+            password="TestPassword!2026",
+            name="Outside Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.medical_case = MedicalCase.objects.create(
+            patient=self.patient,
+            origin_hospital=self.origin,
+            partner_hospital=self.partner,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date=date(2026, 8, 1),
+            clinician_note="Observe symptoms.",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        self.collaboration_request = (
+            CaseCollaborationRequest.objects.create(
+                medical_case=self.medical_case,
+                status=CaseCollaborationRequest.Status.ACCEPTED,
+                accepted_at=timezone.now(),
+            )
+        )
+        self.chat_room = CaseChatRoom.objects.create(
+            medical_case=self.medical_case,
+            partner_hospital=self.partner,
+        )
+        self.first_message = CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="첫 번째 메시지",
+        )
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.partner,
+            source_language="ja",
+            content="返信です",
+        )
+        self.latest_message = CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="최근 원문 메시지",
+        )
+        CaseChatMessageTranslation.objects.create(
+            message=self.latest_message,
+            target_language="ja",
+            translated_content="最新の翻訳メッセージ",
+            status=CaseChatMessageTranslation.Status.COMPLETED,
+        )
+        self.client.force_authenticate(user=self.partner)
+
+    def test_chat_list_contains_case_latest_message_and_unread_count(self):
+        response = self.client.get(reverse("case-chat-room-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        room = response.data[0]
+        self.assertEqual(room["patient_name"], "Anna Kim")
+        self.assertEqual(room["procedure_name"], "Botox")
+        self.assertEqual(room["counterpart_hospital_name"], "Seoul Beauty Clinic")
+        self.assertEqual(room["unread_count"], 2)
+        self.assertEqual(room["last_message"]["id"], self.latest_message.id)
+        self.assertEqual(
+            room["last_message"]["content"],
+            "최근 원문 메시지",
+        )
+        self.assertEqual(
+            room["last_message"]["translated_content"],
+            "最新の翻訳メッセージ",
+        )
+        self.assertEqual(
+            room["last_message"]["display_content"],
+            "最新の翻訳メッセージ",
+        )
+        self.assertIsNotNone(room["last_message_at"])
+
+    def test_mark_read_clears_unread_and_new_message_increments_it(self):
+        response = self.client.post(
+            reverse(
+                "case-chat-room-read",
+                kwargs={"room_id": self.chat_room.id},
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["last_read_message_id"],
+            self.latest_message.id,
+        )
+        self.assertEqual(response.data["unread_count"], 0)
+        self.assertTrue(
+            CaseChatReadState.objects.filter(
+                chat_room=self.chat_room,
+                hospital=self.partner,
+                last_read_message=self.latest_message,
+            ).exists()
+        )
+
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="새 메시지",
+        )
+        list_response = self.client.get(reverse("case-chat-room-list"))
+        self.assertEqual(list_response.data[0]["unread_count"], 1)
+
+    def test_outside_hospital_cannot_mark_room_as_read(self):
+        self.client.force_authenticate(user=self.outsider)
+
+        response = self.client.post(
+            reverse(
+                "case-chat-room-read",
+                kwargs={"room_id": self.chat_room.id},
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class CaseAgreementAPITests(APITestCase):

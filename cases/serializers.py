@@ -13,6 +13,7 @@ from .models import (
     CaseAgreementRevision,
     CaseIngredient,
     CaseChatMessage,
+    CaseChatRoom,
     CaseCollaborationRequest,
     MedicalCase,
 )
@@ -297,6 +298,136 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class CaseChatRoomListSerializer(serializers.ModelSerializer):
+    room_id = serializers.IntegerField(source="id", read_only=True)
+    medical_case_id = serializers.IntegerField(read_only=True)
+    case_number = serializers.SerializerMethodField()
+    patient_id = serializers.IntegerField(
+        source="medical_case.patient.id",
+        read_only=True,
+    )
+    patient_name = serializers.CharField(
+        source="medical_case.patient.name",
+        read_only=True,
+    )
+    procedure_name = serializers.CharField(
+        source="medical_case.procedure_name",
+        read_only=True,
+    )
+    origin_hospital_id = serializers.IntegerField(
+        source="medical_case.origin_hospital.id",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    partner_hospital_id = serializers.IntegerField(read_only=True)
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    counterpart_hospital_id = serializers.SerializerMethodField()
+    counterpart_hospital_name = serializers.SerializerMethodField()
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    last_message_at = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseChatRoom
+        fields = (
+            "room_id",
+            "medical_case_id",
+            "case_number",
+            "patient_id",
+            "patient_name",
+            "procedure_name",
+            "origin_hospital_id",
+            "origin_hospital_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "counterpart_hospital_id",
+            "counterpart_hospital_name",
+            "collaboration_request_id",
+            "collaboration_request_status",
+            "last_message",
+            "last_message_at",
+            "unread_count",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return (
+            f"CASE-{obj.medical_case.created_at.year}-"
+            f"{obj.medical_case_id:06d}"
+        )
+
+    def get_counterpart_hospital(self, obj):
+        request = self.context["request"]
+        if request.user.id == obj.partner_hospital_id:
+            return obj.medical_case.origin_hospital
+        return obj.partner_hospital
+
+    def get_counterpart_hospital_id(self, obj):
+        return self.get_counterpart_hospital(obj).id
+
+    def get_counterpart_hospital_name(self, obj):
+        return self.get_counterpart_hospital(obj).name
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return collaboration_request.id if collaboration_request else None
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return collaboration_request.status if collaboration_request else None
+
+    def get_messages(self, obj):
+        return getattr(obj, "chat_list_messages", [])
+
+    def get_last_message(self, obj):
+        messages = self.get_messages(obj)
+        if not messages:
+            return None
+
+        return CaseChatMessageSerializer(
+            messages[-1],
+            context=self.context,
+        ).data
+
+    def get_last_message_at(self, obj):
+        messages = self.get_messages(obj)
+        return messages[-1].created_at if messages else None
+
+    def get_unread_count(self, obj):
+        request = self.context["request"]
+        read_states = getattr(obj, "viewer_read_states", [])
+        last_read_message_id = (
+            read_states[0].last_read_message_id
+            if read_states
+            else None
+        )
+
+        return sum(
+            1
+            for message in self.get_messages(obj)
+            if message.sender_id != request.user.id
+            and (
+                last_read_message_id is None
+                or message.id > last_read_message_id
+            )
+        )
 
 
 class EvidenceItemSerializer(serializers.Serializer):
