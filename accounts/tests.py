@@ -1,10 +1,100 @@
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import HospitalProfile, MedicalSpecialty, User
+from cases.models import MedicalCase
+
+from .models import (
+    HospitalProfile,
+    MedicalSpecialty,
+    PatientProfile,
+    User,
+)
 from .specialties import SpecialtyCode
+
+
+class PatientProfileReadTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="patient-profile-user",
+            password="StrongPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.profile = PatientProfile.objects.create(
+            user=self.user,
+            passport_number="M12345678",
+            birth_date="1992-05-20",
+            phone="+81-90-1234-5678",
+            address="Tokyo",
+        )
+        self.url = reverse("accounts:patient-profile")
+        self.client.force_authenticate(user=self.user)
+
+    def test_profile_includes_generated_medical_passport_number(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["medical_passport_no"],
+            (
+                f"MP-{self.user.date_joined.year}-"
+                f"{self.profile.patient_id:04d}"
+            ),
+        )
+
+    def test_last_updated_uses_joined_at_without_cases(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["last_updated"],
+            self.user.date_joined.isoformat().replace("+00:00", "Z"),
+        )
+
+    def test_last_updated_uses_latest_case_update(self):
+        origin_hospital = User.objects.create_user(
+            username="origin-hospital",
+            password="StrongPassword!2026",
+            name="Origin Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        older_case = MedicalCase.objects.create(
+            patient=self.user,
+            origin_hospital=origin_hospital,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date="2026-08-01",
+            clinician_note="Older case",
+        )
+        latest_case = MedicalCase.objects.create(
+            patient=self.user,
+            origin_hospital=origin_hospital,
+            procedure_name="Filler",
+            procedure_area="Lip",
+            procedure_date="2026-08-02",
+            clinician_note="Latest case",
+        )
+        older_updated_at = timezone.now() - timedelta(days=2)
+        latest_updated_at = timezone.now() - timedelta(days=1)
+        MedicalCase.objects.filter(pk=older_case.pk).update(
+            updated_at=older_updated_at,
+        )
+        MedicalCase.objects.filter(pk=latest_case.pk).update(
+            updated_at=latest_updated_at,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["last_updated"],
+            latest_updated_at.isoformat().replace("+00:00", "Z"),
+        )
 
 
 class PatientSignUpConsentTests(APITestCase):

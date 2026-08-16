@@ -32,6 +32,9 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    medical_passport_no = serializers.SerializerMethodField()
+    last_updated = serializers.SerializerMethodField()
+
     class Meta:
         model = PatientProfile
 
@@ -39,6 +42,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "patient_id",
             "name",
             "passport_number",
+            "medical_passport_no",
             "birth_date",
             "nationality",
             "phone",
@@ -47,12 +51,32 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "city",
             "latitude",
             "longitude",
+            "last_updated",
         )
 
         read_only_fields = (
             "patient_id",
             "name",
+            "medical_passport_no",
+            "last_updated",
         )
+
+    def get_medical_passport_no(self, obj):
+        return (
+            f"MP-{obj.user.date_joined.year}-"
+            f"{obj.patient_id:04d}"
+        )
+
+    def get_last_updated(self, obj):
+        latest_case_updated_at = (
+            obj.user.patient_cases
+            .order_by("-updated_at")
+            .values_list("updated_at", flat=True)
+            .first()
+        )
+        value = latest_case_updated_at or obj.user.date_joined
+
+        return serializers.DateTimeField().to_representation(value)
 
 
 # =========================================================
