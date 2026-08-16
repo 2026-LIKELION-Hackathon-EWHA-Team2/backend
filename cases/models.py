@@ -248,6 +248,35 @@ class CaseChatMessageTranslation(models.Model):
         ]
 
 
+class CaseChatReadState(models.Model):
+    chat_room = models.ForeignKey(
+        CaseChatRoom,
+        on_delete=models.CASCADE,
+        related_name="read_states",
+    )
+    hospital = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="case_chat_read_states",
+    )
+    last_read_message = models.ForeignKey(
+        CaseChatMessage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="read_by_states",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("chat_room", "hospital"),
+                name="unique_chat_room_hospital_read_state",
+            ),
+        ]
+
+
 
 class CaseAgreement(models.Model):
     class Status(models.TextChoices):

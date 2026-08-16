@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    HospitalMatchConsentView,
     HospitalMatchRequestCreateView,
     HospitalMatchRequestDetailView,
     HospitalRecommendationListView,
@@ -22,6 +23,13 @@ urlpatterns = [
         "requests/<int:match_request_id>/",
         HospitalMatchRequestDetailView.as_view(),
         name="match-request-detail",
+    ),
+
+    # 선택 병원 매칭 동의
+    path(
+        "requests/<int:match_request_id>/consent/",
+        HospitalMatchConsentView.as_view(),
+        name="match-request-consent",
     ),
 
     # 추천 병원 목록

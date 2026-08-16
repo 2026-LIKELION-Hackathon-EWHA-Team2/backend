@@ -1,4 +1,6 @@
+from django.utils import timezone
 from rest_framework import serializers
+
 from accounts.serializers import MedicalSpecialtySerializer
 from accounts.models import HospitalProfile
 
@@ -140,6 +142,12 @@ class HospitalMatchRequestSerializer(
             "search_latitude",
             "search_longitude",
 
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+            "agreed_at",
+
             "status",
 
             "created_at",
@@ -151,6 +159,11 @@ class HospitalMatchRequestSerializer(
             "patient_id",
             "required_specialty",
             "required_specialty_code",
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+            "agreed_at",
             "status",
             "created_at",
             "updated_at",
@@ -256,6 +269,43 @@ class HospitalMatchRequestSerializer(
                     custom_errors
                 )
         return attrs
+
+
+class HospitalMatchConsentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HospitalMatchRequest
+        fields = (
+            "personal_information_provision_agreed",
+            "information_items_purpose_confirmed",
+            "medical_consultation_use_agreed",
+            "withdrawal_right_confirmed",
+        )
+
+    def validate(self, attrs):
+        if self.instance.status != HospitalMatchRequest.Status.SELECTED:
+            raise serializers.ValidationError(
+                "병원을 선택한 뒤 동의할 수 있습니다."
+            )
+
+        if not all([
+            attrs.get("personal_information_provision_agreed", False),
+            attrs.get("information_items_purpose_confirmed", False),
+            attrs.get("medical_consultation_use_agreed", False),
+            attrs.get("withdrawal_right_confirmed", False),
+        ]):
+            raise serializers.ValidationError(
+                "병원 매칭을 위한 필수 동의가 필요합니다."
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        instance.agreed_at = timezone.now()
+        instance.save()
+        return instance
 
 
 class HospitalRecommendationSerializer(

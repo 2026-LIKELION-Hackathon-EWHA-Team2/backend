@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -13,6 +14,8 @@ from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 from .models import (
     CaseAgreement,
     CaseChatMessage,
+    CaseChatMessageTranslation,
+    CaseChatReadState,
     CaseChatRoom,
     CaseCollaborationRequest,
     CaseTransfer,
@@ -75,6 +78,323 @@ class MedicalCaseReadAPITests(APITestCase):
             response.status_code,
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
+
+
+class HospitalDashboardAndReceivedCaseTests(APITestCase):
+    def setUp(self):
+        self.hospital = User.objects.create_user(
+            username="dashboard-hospital",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.origin = User.objects.create_user(
+            username="dashboard-origin",
+            password="TestPassword!2026",
+            name="Seoul Beauty Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.other_hospital = User.objects.create_user(
+            username="dashboard-other",
+            password="TestPassword!2026",
+            name="Osaka Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.anna = User.objects.create_user(
+            username="dashboard-anna",
+            password="TestPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.sato = User.objects.create_user(
+            username="dashboard-sato",
+            password="TestPassword!2026",
+            name="Sato Aoi",
+            user_type=User.UserType.PATIENT,
+        )
+        self.client.force_authenticate(user=self.hospital)
+
+    def create_request(
+        self,
+        patient,
+        request_status,
+        *,
+        partner=None,
+        requested_at=None,
+        accepted_at=None,
+        completed_at=None,
+    ):
+        medical_case = MedicalCase.objects.create(
+            patient=patient,
+            origin_hospital=self.origin,
+            partner_hospital=partner or self.hospital,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date=date(2026, 8, 1),
+            clinician_note="Observe symptoms.",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        collaboration_request = CaseCollaborationRequest.objects.create(
+            medical_case=medical_case,
+            status=request_status,
+            accepted_at=accepted_at,
+            completed_at=completed_at,
+        )
+
+        if requested_at is not None:
+            CaseCollaborationRequest.objects.filter(
+                pk=collaboration_request.pk,
+            ).update(requested_at=requested_at)
+            collaboration_request.refresh_from_db()
+
+        return collaboration_request
+
+    def test_case_lookup_returns_all_received_dates_and_filters_status(self):
+        old_time = timezone.now() - timedelta(days=7)
+        requested = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        completed = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=old_time,
+        )
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+            partner=self.other_hospital,
+        )
+
+        response = self.client.get(
+            reverse("collaboration-request-list"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["id"] for item in response.data},
+            {requested.id, completed.id},
+        )
+
+        completed_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"status": "COMPLETED"},
+        )
+        self.assertEqual(len(completed_response.data), 1)
+        self.assertEqual(completed_response.data[0]["id"], completed.id)
+
+    def test_case_lookup_searches_patient_name_and_case_number(self):
+        request_item = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+
+        name_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"search": "Anna"},
+        )
+        self.assertEqual(len(name_response.data), 1)
+        self.assertEqual(name_response.data[0]["id"], request_item.id)
+
+        case_number = (
+            f"CASE-{request_item.medical_case.created_at.year}-"
+            f"{request_item.medical_case_id:06d}"
+        )
+        number_response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"search": case_number},
+        )
+        self.assertEqual(len(number_response.data), 1)
+        self.assertEqual(
+            number_response.data[0]["case_number"],
+            case_number,
+        )
+
+    def test_dashboard_counts_today_and_lists_all_ongoing_cases(self):
+        old_time = timezone.now() - timedelta(days=3)
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        ongoing = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            requested_at=old_time,
+            accepted_at=old_time,
+        )
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("hospital-dashboard"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["today_summary"],
+            {
+                "received_count": 1,
+                "under_review_count": 1,
+                "completed_count": 1,
+            },
+        )
+        self.assertEqual(
+            [item["id"] for item in response.data["ongoing_collaborations"]],
+            [ongoing.id],
+        )
+
+
+class CaseChatRoomListAndReadTests(APITestCase):
+    def setUp(self):
+        self.patient = User.objects.create_user(
+            username="chat-list-patient",
+            password="TestPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.origin = User.objects.create_user(
+            username="chat-list-origin",
+            password="TestPassword!2026",
+            name="Seoul Beauty Clinic",
+            user_type=User.UserType.HOSPITAL,
+            preferred_language="ko",
+        )
+        self.partner = User.objects.create_user(
+            username="chat-list-partner",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+            preferred_language="ja",
+        )
+        self.outsider = User.objects.create_user(
+            username="chat-list-outsider",
+            password="TestPassword!2026",
+            name="Outside Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.medical_case = MedicalCase.objects.create(
+            patient=self.patient,
+            origin_hospital=self.origin,
+            partner_hospital=self.partner,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date=date(2026, 8, 1),
+            clinician_note="Observe symptoms.",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        self.collaboration_request = (
+            CaseCollaborationRequest.objects.create(
+                medical_case=self.medical_case,
+                status=CaseCollaborationRequest.Status.ACCEPTED,
+                accepted_at=timezone.now(),
+            )
+        )
+        self.chat_room = CaseChatRoom.objects.create(
+            medical_case=self.medical_case,
+            partner_hospital=self.partner,
+        )
+        self.first_message = CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="첫 번째 메시지",
+        )
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.partner,
+            source_language="ja",
+            content="返信です",
+        )
+        self.latest_message = CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="최근 원문 메시지",
+        )
+        CaseChatMessageTranslation.objects.create(
+            message=self.latest_message,
+            target_language="ja",
+            translated_content="最新の翻訳メッセージ",
+            status=CaseChatMessageTranslation.Status.COMPLETED,
+        )
+        self.client.force_authenticate(user=self.partner)
+
+    def test_chat_list_contains_case_latest_message_and_unread_count(self):
+        response = self.client.get(reverse("case-chat-room-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        room = response.data[0]
+        self.assertEqual(room["patient_name"], "Anna Kim")
+        self.assertEqual(room["procedure_name"], "Botox")
+        self.assertEqual(room["counterpart_hospital_name"], "Seoul Beauty Clinic")
+        self.assertEqual(room["unread_count"], 2)
+        self.assertEqual(room["last_message"]["id"], self.latest_message.id)
+        self.assertEqual(
+            room["last_message"]["content"],
+            "최근 원문 메시지",
+        )
+        self.assertEqual(
+            room["last_message"]["translated_content"],
+            "最新の翻訳メッセージ",
+        )
+        self.assertEqual(
+            room["last_message"]["display_content"],
+            "最新の翻訳メッセージ",
+        )
+        self.assertIsNotNone(room["last_message_at"])
+
+    def test_mark_read_clears_unread_and_new_message_increments_it(self):
+        response = self.client.post(
+            reverse(
+                "case-chat-room-read",
+                kwargs={"room_id": self.chat_room.id},
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["last_read_message_id"],
+            self.latest_message.id,
+        )
+        self.assertEqual(response.data["unread_count"], 0)
+        self.assertTrue(
+            CaseChatReadState.objects.filter(
+                chat_room=self.chat_room,
+                hospital=self.partner,
+                last_read_message=self.latest_message,
+            ).exists()
+        )
+
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="새 메시지",
+        )
+        list_response = self.client.get(reverse("case-chat-room-list"))
+        self.assertEqual(list_response.data[0]["unread_count"], 1)
+
+    def test_outside_hospital_cannot_mark_room_as_read(self):
+        self.client.force_authenticate(user=self.outsider)
+
+        response = self.client.post(
+            reverse(
+                "case-chat-room-read",
+                kwargs={"room_id": self.chat_room.id},
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class CaseAgreementAPITests(APITestCase):
@@ -328,6 +648,11 @@ class CaseTransferFlowTests(APITestCase):
             search_latitude="35.6762000",
             search_longitude="139.6503000",
             status=HospitalMatchRequest.Status.SELECTED,
+            personal_information_provision_agreed=True,
+            information_items_purpose_confirmed=True,
+            medical_consultation_use_agreed=True,
+            withdrawal_right_confirmed=True,
+            agreed_at=timezone.now(),
         )
         self.recommendation = HospitalRecommendation.objects.create(
             match_request=self.match_request,
@@ -457,9 +782,94 @@ class CaseTransferFlowTests(APITestCase):
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
+    def test_hospital_selection_does_not_create_collaboration_request(self):
+        response = self.client.post(
+            reverse(
+                "recommendation-select",
+                kwargs={
+                    "recommendation_id": self.recommendation.pk,
+                },
+            ),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.match_request.refresh_from_db()
+        self.assertFalse(
+            self.match_request.personal_information_provision_agreed,
+        )
+        self.assertIsNone(self.match_request.agreed_at)
+
+    def test_all_three_transfer_consents_are_required(self):
+        create_response = self.create_transfer()
+
+        response = self.client.patch(
+            reverse(
+                "case-transfer-review",
+                kwargs={"transfer_id": create_response.data["id"]},
+            ),
+            {
+                "procedure_medication_agreed": True,
+                "adverse_effect_clinician_note_agreed": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+
+    def test_four_match_consents_are_required_before_sync(self):
+        self.match_request.personal_information_provision_agreed = False
+        self.match_request.information_items_purpose_confirmed = False
+        self.match_request.medical_consultation_use_agreed = False
+        self.match_request.withdrawal_right_confirmed = False
+        self.match_request.agreed_at = None
+        self.match_request.save()
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            self.transfer_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CaseTransfer.objects.exists())
+
+    def test_match_consent_does_not_create_collaboration_request(self):
+        self.match_request.personal_information_provision_agreed = False
+        self.match_request.information_items_purpose_confirmed = False
+        self.match_request.medical_consultation_use_agreed = False
+        self.match_request.withdrawal_right_confirmed = False
+        self.match_request.agreed_at = None
+        self.match_request.save()
+
+        response = self.client.patch(
+            reverse(
+                "match-request-consent",
+                kwargs={
+                    "match_request_id": self.match_request.pk,
+                },
+            ),
+            {
+                "personal_information_provision_agreed": True,
+                "information_items_purpose_confirmed": True,
+                "medical_consultation_use_agreed": True,
+                "withdrawal_right_confirmed": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["agreed_at"])
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+
     def test_symptom_completes_only_after_final_agreement(self):
         create_response = self.create_transfer()
         transfer_id = create_response.data["id"]
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.assertIsNone(
+            create_response.data["collaboration_request_id"],
+        )
 
         review_response = self.client.patch(
             reverse(
@@ -478,6 +888,10 @@ class CaseTransferFlowTests(APITestCase):
             review_response.data["status"],
             CaseTransfer.Status.READY_TO_TRANSFER,
         )
+        self.assertFalse(CaseCollaborationRequest.objects.exists())
+        self.assertIsNone(
+            review_response.data["collaboration_request_id"],
+        )
 
         send_response = self.client.post(
             reverse(
@@ -487,6 +901,14 @@ class CaseTransferFlowTests(APITestCase):
         )
         self.assertEqual(send_response.status_code, status.HTTP_200_OK)
         collaboration_request = CaseCollaborationRequest.objects.get()
+        self.assertEqual(
+            send_response.data["collaboration_request_id"],
+            collaboration_request.id,
+        )
+        self.assertEqual(
+            send_response.data["collaboration_request_status"],
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
         self.symptom_case.refresh_from_db()
         self.assertEqual(
             self.symptom_case.status,

@@ -13,6 +13,7 @@ from .models import (
     CaseAgreementRevision,
     CaseIngredient,
     CaseChatMessage,
+    CaseChatRoom,
     CaseCollaborationRequest,
     MedicalCase,
 )
@@ -26,6 +27,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "붉어짐",
         "INFECTION": "감염 의심",
         "PIGMENTATION": "색소침착",
+        "BRUISING_BLEEDING": "멍/출혈",
     },
     "en": {
         "SWELLING": "Swelling",
@@ -34,6 +36,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "Redness",
         "INFECTION": "Suspected infection",
         "PIGMENTATION": "Pigmentation",
+        "BRUISING_BLEEDING": "Bruising/bleeding",
     },
     "ja": {
         "SWELLING": "腫れ",
@@ -42,6 +45,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "発赤",
         "INFECTION": "感染の疑い",
         "PIGMENTATION": "色素沈着",
+        "BRUISING_BLEEDING": "あざ/出血",
     },
     "zh": {
         "SWELLING": "肿胀",
@@ -50,6 +54,7 @@ ADVERSE_EFFECT_LABELS = {
         "REDNESS": "发红",
         "INFECTION": "疑似感染",
         "PIGMENTATION": "色素沉着",
+        "BRUISING_BLEEDING": "淤青/出血",
     },
 }
 
@@ -111,6 +116,8 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
 class CaseCollaborationRequestSerializer(
     serializers.ModelSerializer
 ):
+    case_number = serializers.SerializerMethodField()
+
     medical_case = MedicalCaseDetailSerializer(
         read_only=True,
     )
@@ -148,6 +155,7 @@ class CaseCollaborationRequestSerializer(
 
         fields = (
             "id",
+            "case_number",
             "medical_case_id",
             "medical_case",
             "origin_hospital_id",
@@ -166,6 +174,12 @@ class CaseCollaborationRequestSerializer(
         )
 
         read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return (
+            f"CASE-{obj.medical_case.created_at.year}-"
+            f"{obj.medical_case_id:06d}"
+        )
 
     def get_chat_room_id(self, obj):
         room = obj.medical_case.chat_rooms.filter(
@@ -284,6 +298,136 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class CaseChatRoomListSerializer(serializers.ModelSerializer):
+    room_id = serializers.IntegerField(source="id", read_only=True)
+    medical_case_id = serializers.IntegerField(read_only=True)
+    case_number = serializers.SerializerMethodField()
+    patient_id = serializers.IntegerField(
+        source="medical_case.patient.id",
+        read_only=True,
+    )
+    patient_name = serializers.CharField(
+        source="medical_case.patient.name",
+        read_only=True,
+    )
+    procedure_name = serializers.CharField(
+        source="medical_case.procedure_name",
+        read_only=True,
+    )
+    origin_hospital_id = serializers.IntegerField(
+        source="medical_case.origin_hospital.id",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    partner_hospital_id = serializers.IntegerField(read_only=True)
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    counterpart_hospital_id = serializers.SerializerMethodField()
+    counterpart_hospital_name = serializers.SerializerMethodField()
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    last_message_at = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseChatRoom
+        fields = (
+            "room_id",
+            "medical_case_id",
+            "case_number",
+            "patient_id",
+            "patient_name",
+            "procedure_name",
+            "origin_hospital_id",
+            "origin_hospital_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "counterpart_hospital_id",
+            "counterpart_hospital_name",
+            "collaboration_request_id",
+            "collaboration_request_status",
+            "last_message",
+            "last_message_at",
+            "unread_count",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return (
+            f"CASE-{obj.medical_case.created_at.year}-"
+            f"{obj.medical_case_id:06d}"
+        )
+
+    def get_counterpart_hospital(self, obj):
+        request = self.context["request"]
+        if request.user.id == obj.partner_hospital_id:
+            return obj.medical_case.origin_hospital
+        return obj.partner_hospital
+
+    def get_counterpart_hospital_id(self, obj):
+        return self.get_counterpart_hospital(obj).id
+
+    def get_counterpart_hospital_name(self, obj):
+        return self.get_counterpart_hospital(obj).name
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return collaboration_request.id if collaboration_request else None
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return collaboration_request.status if collaboration_request else None
+
+    def get_messages(self, obj):
+        return getattr(obj, "chat_list_messages", [])
+
+    def get_last_message(self, obj):
+        messages = self.get_messages(obj)
+        if not messages:
+            return None
+
+        return CaseChatMessageSerializer(
+            messages[-1],
+            context=self.context,
+        ).data
+
+    def get_last_message_at(self, obj):
+        messages = self.get_messages(obj)
+        return messages[-1].created_at if messages else None
+
+    def get_unread_count(self, obj):
+        request = self.context["request"]
+        read_states = getattr(obj, "viewer_read_states", [])
+        last_read_message_id = (
+            read_states[0].last_read_message_id
+            if read_states
+            else None
+        )
+
+        return sum(
+            1
+            for message in self.get_messages(obj)
+            if message.sender_id != request.user.id
+            and (
+                last_read_message_id is None
+                or message.id > last_read_message_id
+            )
+        )
 
 
 class EvidenceItemSerializer(serializers.Serializer):
@@ -534,6 +678,20 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
                 }
             )
 
+        match_request = recommendation.match_request
+        if (
+            match_request.agreed_at is None
+            or not all([
+                match_request.personal_information_provision_agreed,
+                match_request.information_items_purpose_confirmed,
+                match_request.medical_consultation_use_agreed,
+                match_request.withdrawal_right_confirmed,
+            ])
+        ):
+            raise serializers.ValidationError(
+                "병원 매칭 동의를 먼저 완료해 주세요."
+            )
+
         if CaseTransfer.objects.filter(symptom_case=symptom_case).exists():
             raise serializers.ValidationError(
                 "해당 증상 케이스의 전송 건이 이미 존재합니다."
@@ -595,6 +753,8 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
         source="medical_case.ai_summary",
         read_only=True,
     )
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
 
     class Meta:
         model = CaseTransfer
@@ -623,6 +783,8 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
             "adverse_effect_clinician_note_agreed",
             "overseas_ai_processing_agreed",
             "agreed_at",
+            "collaboration_request_id",
+            "collaboration_request_status",
             "status",
             "transferred_at",
             "created_at",
@@ -631,6 +793,28 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
 
     def get_case_number(self, obj):
         return f"CASE-{obj.created_at.year}-{obj.id:06d}"
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.id
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.status
+            if collaboration_request is not None
+            else None
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

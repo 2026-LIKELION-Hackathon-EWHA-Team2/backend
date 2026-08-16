@@ -14,6 +14,7 @@ from .models import (
 )
 
 from .serializers import (
+    HospitalMatchConsentSerializer,
     HospitalMatchRequestSerializer,
     HospitalRecommendationSerializer,
 )
@@ -490,10 +491,20 @@ class HospitalRecommendationSelectView(
             .Status
             .SELECTED
         )
+        match_request.personal_information_provision_agreed = False
+        match_request.information_items_purpose_confirmed = False
+        match_request.medical_consultation_use_agreed = False
+        match_request.withdrawal_right_confirmed = False
+        match_request.agreed_at = None
 
         match_request.save(
             update_fields=[
                 "status",
+                "personal_information_provision_agreed",
+                "information_items_purpose_confirmed",
+                "medical_consultation_use_agreed",
+                "withdrawal_right_confirmed",
+                "agreed_at",
                 "updated_at",
             ]
         )
@@ -555,5 +566,41 @@ class HospitalRecommendationSelectView(
                     .user
                     .name,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class HospitalMatchConsentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, match_request_id):
+        try:
+            patient = PatientProfile.objects.get(user=request.user)
+        except PatientProfile.DoesNotExist:
+            return Response(
+                {"detail": "환자 프로필이 존재하지 않습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            match_request = HospitalMatchRequest.objects.get(
+                match_request_id=match_request_id,
+                patient=patient,
+            )
+        except HospitalMatchRequest.DoesNotExist:
+            return Response(
+                {"detail": "매칭 요청을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = HospitalMatchConsentSerializer(
+            match_request,
+            data=request.data,
+        )
+        serializer.is_valid(raise_exception=True)
+        match_request = serializer.save()
+
+        return Response(
+            HospitalMatchRequestSerializer(match_request).data,
             status=status.HTTP_200_OK,
         )
