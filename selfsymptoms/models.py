@@ -193,7 +193,6 @@ class PatientSymptomArea(models.Model):
         HAND = "HAND", "손"
         LEG = "LEG", "다리"
         FOOT = "FOOT", "발"
-        OTHER = "OTHER", "기타"
 
     symptom_area_id = models.BigAutoField(
         primary_key=True,
@@ -208,12 +207,6 @@ class PatientSymptomArea(models.Model):
     area_type = models.CharField(
         max_length=30,
         choices=AreaType.choices,
-    )
-
-    custom_area = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
     )
 
     created_at = models.DateTimeField(
@@ -233,32 +226,7 @@ class PatientSymptomArea(models.Model):
             )
         ]
 
-    def clean(self):
-        if self.area_type == self.AreaType.OTHER:
-            if not self.custom_area:
-                raise ValidationError(
-                    {
-                        "custom_area": (
-                            "기타 부위를 선택한 경우 "
-                            "부위를 직접 입력해야 합니다."
-                        )
-                    }
-                )
-        else:
-            if self.custom_area:
-                raise ValidationError(
-                    {
-                        "custom_area": (
-                            "기타 부위를 선택한 경우에만 "
-                            "직접 입력할 수 있습니다."
-                        )
-                    }
-                )
-
     def __str__(self):
-        if self.area_type == self.AreaType.OTHER:
-            return self.custom_area
-
         return self.get_area_type_display()
 
 

@@ -1048,7 +1048,7 @@ class CaseTransferListCreateView(generics.CreateAPIView):
             else None,
             "pain_level": symptom_case.pain_level,
             "areas": [
-                area.custom_area or area.get_area_type_display()
+                area.get_area_type_display()
                 for area in symptom_case.areas.all()
             ],
             "types": [
