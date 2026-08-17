@@ -283,9 +283,7 @@ class HospitalMatchRequestDetailView(
 # 3. 추천 병원 목록 조회
 # ==========================================
 
-class HospitalRecommendationListView(
-    APIView
-):
+class HospitalRecommendationListView(APIView):
 
     permission_classes = [
         IsAuthenticated,
@@ -316,9 +314,7 @@ class HospitalRecommendationListView(
             match_request = (
                 HospitalMatchRequest.objects
                 .get(
-                    match_request_id=(
-                        match_request_id
-                    ),
+                    match_request_id=match_request_id,
                     patient=patient,
                 )
             )
@@ -333,6 +329,40 @@ class HospitalRecommendationListView(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        sort = request.query_params.get(
+            "sort",
+            "recommended",
+        )
+
+        ordering_map = {
+            "recommended": (
+                "rank_number",
+            ),
+            "distance": (
+                "distance_km",
+                "rank_number",
+            ),
+            "collaboration": (
+                "-collaboration_count",
+                "rank_number",
+            ),
+            "diagnosis": (
+                "-specialty_score",
+                "rank_number",
+            ),
+        }
+
+        if sort not in ordering_map:
+            return Response(
+                {
+                    "detail": (
+                        "sort는 recommended, distance, "
+                        "collaboration, diagnosis 중 하나여야 합니다."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         recommendations = (
             match_request
             .recommendations
@@ -341,18 +371,16 @@ class HospitalRecommendationListView(
                 "hospital__user",
             )
             .prefetch_related(
-                "hospital__specialties"
+                "hospital__specialties",
             )
             .order_by(
-                "rank_number"
+                *ordering_map[sort]
             )
         )
 
-        serializer = (
-            HospitalRecommendationSerializer(
-                recommendations,
-                many=True,
-            )
+        serializer = HospitalRecommendationSerializer(
+            recommendations,
+            many=True,
         )
 
         return Response(

@@ -112,7 +112,6 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
-    'TOKEN_USER_CLASS': 'api.User',
 }
 AUTH_USER_MODEL = 'accounts.User'
 

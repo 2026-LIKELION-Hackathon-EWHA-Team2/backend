@@ -329,6 +329,7 @@ class HospitalRecommendationSerializer(
             "specialty_score",
             "distance_score",
             "collaboration_score",
+            "collaboration_count",
 
             "total_score",
             "distance_km",
