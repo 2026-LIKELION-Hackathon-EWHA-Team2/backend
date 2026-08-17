@@ -435,11 +435,6 @@ class EvidenceItemSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=100)
     content = serializers.CharField(max_length=1000)
     order = serializers.IntegerField(min_value=1)
-    label = serializers.CharField(
-        max_length=30,
-        required=False,
-        default="없음",
-    )
 
 
 class CaseAgreementSerializer(serializers.ModelSerializer):

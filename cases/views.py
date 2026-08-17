@@ -1129,7 +1129,11 @@ class CaseAgreementGenerateView(APIView):
             chat_room=chat_room,
         ).exists():
             raise ValidationError(
-                "이미 생성된 협진 합의안이 있습니다."
+                {
+                    "detail": (
+                        "이미 생성된 협진 합의안이 있습니다."
+                    )
+                }
             )
 
         messages = list(
@@ -1140,7 +1144,11 @@ class CaseAgreementGenerateView(APIView):
 
         if not messages:
             raise ValidationError(
-                "합의안을 생성할 채팅 메시지가 없습니다."
+                {
+                    "detail": (
+                        "합의안을 생성할 채팅 메시지가 없습니다."
+                    )
+                }
             )
 
         medical_case = chat_room.medical_case
@@ -1180,8 +1188,13 @@ class CaseAgreementGenerateView(APIView):
             logger.exception(
                 "OpenAI agreement generation failed"
             )
-            raise ValidationError(
-                "AI 합의안 초안을 생성하지 못했습니다."
+            return Response(
+                {
+                    "detail": (
+                        "AI 합의안 초안을 생성하지 못했습니다."
+                    )
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         # 추가 소견은 AI가 아니라 참여 의료진이 직접 작성합니다.
@@ -1191,7 +1204,19 @@ class CaseAgreementGenerateView(APIView):
             data=generated_data,
             context={"request": request},
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            logger.error(
+                "Invalid AI agreement payload: %s",
+                serializer.errors,
+            )
+            return Response(
+                {
+                    "detail": (
+                        "AI 합의안 초안을 생성하지 못했습니다."
+                    )
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         # AI 호출 중 다른 요청이 합의안을 만들었는지 재확인합니다.
         with transaction.atomic():
@@ -1205,7 +1230,11 @@ class CaseAgreementGenerateView(APIView):
                 chat_room=locked_room,
             ).exists():
                 raise ValidationError(
-                    "이미 생성된 협진 합의안이 있습니다."
+                    {
+                        "detail": (
+                            "이미 생성된 협진 합의안이 있습니다."
+                        )
+                    }
                 )
 
             agreement = serializer.save(

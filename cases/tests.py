@@ -536,6 +536,16 @@ class CaseAgreementAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["additional_opinion"], "")
+        self.assertEqual(
+            response.data["evidence_items"],
+            [
+                {
+                    "id": "evidence-1",
+                    "content": "감염 징후가 없습니다.",
+                    "order": 1,
+                }
+            ],
+        )
         self.assertNotIn("follow_up_actions", response.data)
         self.assertNotIn("precautions", response.data)
         self.assertNotIn("patient_message", response.data)
@@ -594,6 +604,76 @@ class CaseAgreementAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["additional_opinion"], "")
+
+    def test_generate_requires_chat_message(self):
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.post(self.generate_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "detail": (
+                    "합의안을 생성할 채팅 메시지가 없습니다."
+                )
+            },
+        )
+
+    def test_generate_rejects_existing_agreement(self):
+        self.create_agreement()
+
+        response = self.client.post(self.generate_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {"detail": "이미 생성된 협진 합의안이 있습니다."},
+        )
+
+    @patch("cases.views.generate_case_agreement")
+    def test_generate_returns_bad_gateway_when_ai_fails(self, generate):
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="감염 징후가 없습니다.",
+        )
+        generate.side_effect = RuntimeError("OpenAI unavailable")
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.post(self.generate_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data,
+            {"detail": "AI 합의안 초안을 생성하지 못했습니다."},
+        )
+
+    @patch("cases.views.generate_case_agreement")
+    def test_generate_returns_bad_gateway_for_invalid_ai_data(
+        self,
+        generate,
+    ):
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="감염 징후가 없습니다.",
+        )
+        generate.return_value = {
+            "judgment_draft": "경과 관찰이 필요합니다.",
+            "evidence_items": [{"id": "evidence-1", "order": 1}],
+        }
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.post(self.generate_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data,
+            {"detail": "AI 합의안 초안을 생성하지 못했습니다."},
+        )
 
     def test_both_hospitals_review_to_finalize(self):
         self.create_agreement()
