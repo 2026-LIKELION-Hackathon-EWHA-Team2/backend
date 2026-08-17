@@ -428,6 +428,10 @@ def generate_recommendations(
                     "collaboration_score"
                 ],
 
+                collaboration_count=result[
+                    "collaboration_count"
+                ], 
+
                 total_score=result[
                     "total_score"
                 ],

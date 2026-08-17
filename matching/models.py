@@ -179,6 +179,9 @@ class HospitalRecommendation(models.Model):
         null=True,
         blank=True,
     )
+    collaboration_count = models.PositiveIntegerField(
+        default=0,
+    )
 
     is_selected = models.BooleanField(
         default=False,
