@@ -1,7 +1,7 @@
 import re
 from datetime import date
 
-from django.db.models import Max, Prefetch, Q
+from django.db.models import F, Max, OuterRef, Prefetch, Q, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import (
@@ -81,6 +81,37 @@ def get_collaboration_requests_for_participating_hospital(user):
             "medical_case__case_transfers",
         )
         .order_by("-requested_at")
+    )
+
+
+def get_total_unread_count_for_hospital(user):
+    last_read_message_id = (
+        CaseChatReadState.objects
+        .filter(
+            chat_room_id=OuterRef("chat_room_id"),
+            hospital=user,
+        )
+        .values("last_read_message_id")[:1]
+    )
+
+    return (
+        CaseChatMessage.objects
+        .filter(
+            Q(chat_room__medical_case__origin_hospital=user)
+            | Q(chat_room__partner_hospital=user),
+            chat_room__is_active=True,
+        )
+        .exclude(sender=user)
+        .annotate(
+            viewer_last_read_message_id=Subquery(
+                last_read_message_id
+            )
+        )
+        .filter(
+            Q(viewer_last_read_message_id__isnull=True)
+            | Q(id__gt=F("viewer_last_read_message_id"))
+        )
+        .count()
     )
 
 
@@ -449,6 +480,9 @@ class HospitalDashboardView(APIView):
                         completed_at__date=today,
                     ).count(),
                 },
+                "total_unread_count": (
+                    get_total_unread_count_for_hospital(request.user)
+                ),
                 "ongoing_collaborations": (
                     CaseCollaborationRequestSerializer(
                         ongoing_collaborations,

@@ -250,6 +250,45 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             [ongoing.id],
         )
 
+    def test_dashboard_counts_total_unread_messages(self):
+        ongoing = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
+        chat_room = CaseChatRoom.objects.create(
+            medical_case=ongoing.medical_case,
+            partner_hospital=self.hospital,
+        )
+        read_message = CaseChatMessage.objects.create(
+            chat_room=chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="읽은 메시지",
+        )
+        CaseChatMessage.objects.create(
+            chat_room=chat_room,
+            sender=self.hospital,
+            source_language="ko",
+            content="내가 보낸 메시지",
+        )
+        CaseChatMessage.objects.create(
+            chat_room=chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="안 읽은 메시지",
+        )
+        CaseChatReadState.objects.create(
+            chat_room=chat_room,
+            hospital=self.hospital,
+            last_read_message=read_message,
+        )
+
+        response = self.client.get(reverse("hospital-dashboard"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_unread_count"], 1)
+
     def test_collaboration_detail_is_visible_to_both_hospitals(self):
         collaboration_request = self.create_request(
             self.anna,
