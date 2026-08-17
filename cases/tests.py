@@ -250,6 +250,61 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             [ongoing.id],
         )
 
+    def test_collaboration_detail_is_visible_to_both_hospitals(self):
+        collaboration_request = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        url = reverse(
+            "collaboration-request-detail",
+            kwargs={
+                "collaboration_request_id": collaboration_request.id,
+            },
+        )
+
+        for hospital in (self.origin, self.hospital):
+            with self.subTest(hospital=hospital.username):
+                self.client.force_authenticate(user=hospital)
+                response = self.client.get(url)
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_collaboration_detail_is_hidden_from_unrelated_hospital(self):
+        collaboration_request = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        self.client.force_authenticate(user=self.other_hospital)
+
+        response = self.client.get(
+            reverse(
+                "collaboration-request-detail",
+                kwargs={
+                    "collaboration_request_id": collaboration_request.id,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patient_cannot_read_collaboration_detail(self):
+        collaboration_request = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        self.client.force_authenticate(user=self.anna)
+
+        response = self.client.get(
+            reverse(
+                "collaboration-request-detail",
+                kwargs={
+                    "collaboration_request_id": collaboration_request.id,
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class CaseChatRoomListAndReadTests(APITestCase):
     def setUp(self):

@@ -57,7 +57,8 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-def get_collaboration_requests_for_user(user):
+def get_collaboration_requests_for_participating_hospital(user):
+    """원 병원 또는 협진 병원으로 참여한 협진 요청을 반환합니다."""
     return (
         CaseCollaborationRequest.objects
         .filter(
@@ -463,6 +464,8 @@ class HospitalDashboardView(APIView):
 class CaseCollaborationRequestDetailView(
     generics.RetrieveAPIView
 ):
+    """협진에 참여한 원 병원과 협진 병원이 요청 상세를 조회합니다."""
+
     permission_classes = [IsHospital]
     serializer_class = CaseCollaborationRequestSerializer
     lookup_url_kwarg = (
@@ -470,7 +473,7 @@ class CaseCollaborationRequestDetailView(
     )
 
     def get_queryset(self):
-        return get_collaboration_requests_for_user(
+        return get_collaboration_requests_for_participating_hospital(
             self.request.user,
         )
 
