@@ -703,6 +703,15 @@ class CaseAgreementAPITests(APITestCase):
             format="json",
         )
         self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            blocked.data,
+            {
+                "detail": (
+                    "최종 합의 내용은 수정 요청 후 "
+                    "변경할 수 있습니다."
+                )
+            },
+        )
 
         reopened = self.client.post(
             self.revision_request_url,

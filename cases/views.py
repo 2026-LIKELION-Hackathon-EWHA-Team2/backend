@@ -715,7 +715,12 @@ class CaseAgreementDetailView(APIView):
 
             if agreement.status == CaseAgreement.Status.FINAL:
                 raise ValidationError(
-                    "최종 합의 내용은 수정 요청 후 변경할 수 있습니다."
+                    {
+                        "detail": (
+                            "최종 합의 내용은 수정 요청 후 "
+                            "변경할 수 있습니다."
+                        )
+                    }
                 )
 
             serializer = CaseAgreementSerializer(
