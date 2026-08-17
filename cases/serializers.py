@@ -59,6 +59,13 @@ ADVERSE_EFFECT_LABELS = {
 }
 
 
+def format_medical_case_number(medical_case):
+    return (
+        f"CASE-{medical_case.created_at.year}-"
+        f"{medical_case.id:06d}"
+    )
+
+
 class CaseIngredientSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseIngredient
@@ -176,10 +183,7 @@ class CaseCollaborationRequestSerializer(
         read_only_fields = fields
 
     def get_case_number(self, obj):
-        return (
-            f"CASE-{obj.medical_case.created_at.year}-"
-            f"{obj.medical_case_id:06d}"
-        )
+        return format_medical_case_number(obj.medical_case)
 
     def get_chat_room_id(self, obj):
         room = obj.medical_case.chat_rooms.filter(
@@ -362,10 +366,7 @@ class CaseChatRoomListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_case_number(self, obj):
-        return (
-            f"CASE-{obj.medical_case.created_at.year}-"
-            f"{obj.medical_case_id:06d}"
-        )
+        return format_medical_case_number(obj.medical_case)
 
     def get_counterpart_hospital(self, obj):
         request = self.context["request"]
@@ -792,7 +793,7 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_case_number(self, obj):
-        return f"CASE-{obj.created_at.year}-{obj.id:06d}"
+        return format_medical_case_number(obj.medical_case)
 
     def get_collaboration_request(self, obj):
         try:
@@ -868,7 +869,7 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_case_number(self, obj):
-        return f"CASE-{obj.created_at.year}-{obj.id:06d}"
+        return format_medical_case_number(obj.medical_case)
 
     def get_collaboration_request(self, obj):
         try:

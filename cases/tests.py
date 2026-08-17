@@ -921,6 +921,17 @@ class CaseTransferFlowTests(APITestCase):
     def test_symptom_completes_only_after_final_agreement(self):
         create_response = self.create_transfer()
         transfer_id = create_response.data["id"]
+        transfer = CaseTransfer.objects.select_related(
+            "medical_case",
+        ).get(id=transfer_id)
+        expected_case_number = (
+            f"CASE-{transfer.medical_case.created_at.year}-"
+            f"{transfer.medical_case_id:06d}"
+        )
+        self.assertEqual(
+            create_response.data["case_number"],
+            expected_case_number,
+        )
         self.assertFalse(CaseCollaborationRequest.objects.exists())
         self.assertIsNone(
             create_response.data["collaboration_request_id"],
@@ -940,6 +951,10 @@ class CaseTransferFlowTests(APITestCase):
         )
         self.assertEqual(review_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
+            review_response.data["case_number"],
+            expected_case_number,
+        )
+        self.assertEqual(
             review_response.data["status"],
             CaseTransfer.Status.READY_TO_TRANSFER,
         )
@@ -955,6 +970,10 @@ class CaseTransferFlowTests(APITestCase):
             ),
         )
         self.assertEqual(send_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            send_response.data["case_number"],
+            expected_case_number,
+        )
         collaboration_request = CaseCollaborationRequest.objects.get()
         self.assertEqual(
             send_response.data["collaboration_request_id"],
@@ -971,6 +990,38 @@ class CaseTransferFlowTests(APITestCase):
         )
 
         self.client.force_authenticate(user=self.partner)
+        received_list_response = self.client.get(
+            reverse("partner-case-transfer-list"),
+        )
+        self.assertEqual(
+            received_list_response.data[0]["case_number"],
+            expected_case_number,
+        )
+
+        received_detail_response = self.client.get(
+            reverse(
+                "partner-case-transfer-detail",
+                kwargs={"transfer_id": transfer_id},
+            ),
+        )
+        self.assertEqual(
+            received_detail_response.data["case_number"],
+            expected_case_number,
+        )
+
+        collaboration_detail_response = self.client.get(
+            reverse(
+                "collaboration-request-detail",
+                kwargs={
+                    "collaboration_request_id": collaboration_request.id,
+                },
+            ),
+        )
+        self.assertEqual(
+            collaboration_detail_response.data["case_number"],
+            expected_case_number,
+        )
+
         accept_response = self.client.post(
             reverse(
                 "collaboration-request-accept",
