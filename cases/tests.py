@@ -379,6 +379,13 @@ class CaseChatRoomListAndReadTests(APITestCase):
             translated_content="最新の翻訳メッセージ",
             status=CaseChatMessageTranslation.Status.COMPLETED,
         )
+        self.messages_url = reverse(
+            "case-chat-message-list-create",
+            kwargs={
+                "case_id": self.medical_case.id,
+                "room_id": self.chat_room.id,
+            },
+        )
         self.client.force_authenticate(user=self.partner)
 
     def test_chat_list_contains_case_latest_message_and_unread_count(self):
@@ -450,6 +457,49 @@ class CaseChatRoomListAndReadTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_message_content_is_required_in_korean(self):
+        response = self.client.post(
+            self.messages_url,
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {"content": ["메시지 내용을 입력해 주세요."]},
+        )
+
+    def test_blank_message_content_is_rejected_in_korean(self):
+        response = self.client.post(
+            self.messages_url,
+            {"content": "   "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {"content": ["메시지 내용을 입력해 주세요."]},
+        )
+
+    def test_message_content_length_error_is_in_korean(self):
+        response = self.client.post(
+            self.messages_url,
+            {"content": "가" * 4001},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data,
+            {
+                "content": [
+                    "메시지는 4,000자 이하로 입력해 주세요."
+                ]
+            },
+        )
 
 
 class CaseAgreementAPITests(APITestCase):

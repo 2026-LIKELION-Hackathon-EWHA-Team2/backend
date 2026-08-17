@@ -219,6 +219,13 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
     content = serializers.CharField(
         max_length=4000,
         trim_whitespace=True,
+        error_messages={
+            "required": "메시지 내용을 입력해 주세요.",
+            "blank": "메시지 내용을 입력해 주세요.",
+            "max_length": (
+                "메시지는 4,000자 이하로 입력해 주세요."
+            ),
+        },
     )
 
     class Meta:
@@ -294,15 +301,6 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
         )
 
         return translated_content or obj.content
-
-    def validate_content(self, value):
-        if not value:
-            raise serializers.ValidationError(
-                "메시지 내용을 입력해 주세요."
-            )
-
-        return value
-
 
 class CaseChatRoomListSerializer(serializers.ModelSerializer):
     room_id = serializers.IntegerField(source="id", read_only=True)
