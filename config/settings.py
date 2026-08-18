@@ -47,6 +47,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*-tutto-shin-s-projects\.vercel\.app$",
+]
+
 RENDER_EXTERNAL_HOSTNAME = os.environ.get(
     "RENDER_EXTERNAL_HOSTNAME"
 )
