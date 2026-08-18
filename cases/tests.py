@@ -80,6 +80,157 @@ class MedicalCaseReadAPITests(APITestCase):
         )
 
 
+class PatientProcedureHistoryListAPITests(APITestCase):
+    def setUp(self):
+        self.patient = User.objects.create_user(
+            username="procedure-history-patient",
+            password="TestPassword!2026",
+            name="Anna Kim",
+            user_type=User.UserType.PATIENT,
+        )
+        self.patient_profile = PatientProfile.objects.create(
+            user=self.patient,
+        )
+        self.other_patient = User.objects.create_user(
+            username="procedure-history-other-patient",
+            password="TestPassword!2026",
+            name="Other Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        self.other_patient_profile = PatientProfile.objects.create(
+            user=self.other_patient,
+        )
+        self.origin = User.objects.create_user(
+            username="procedure-history-origin",
+            password="TestPassword!2026",
+            name="ABC Beauty Clinic",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.partner = User.objects.create_user(
+            username="procedure-history-partner",
+            password="TestPassword!2026",
+            name="Tokyo Medical",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.url = reverse("patient-procedure-history-list")
+
+    def create_history_case(
+        self,
+        *,
+        patient,
+        patient_profile,
+        symptom_status,
+        procedure_name,
+        procedure_date,
+        agreement_status=None,
+        finalized_at=None,
+    ):
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=patient_profile,
+            status=symptom_status,
+        )
+        medical_case = MedicalCase.objects.create(
+            patient=patient,
+            origin_hospital=self.origin,
+            partner_hospital=self.partner,
+            procedure_name=procedure_name,
+            procedure_area="이마",
+            procedure_date=procedure_date,
+            clinician_note="경과 관찰",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        CaseTransfer.objects.create(
+            medical_case=medical_case,
+            patient=patient,
+            symptom_case=symptom_case,
+            partner_hospital=self.partner,
+            patient_name=patient.name,
+            patient_gender=CaseTransfer.Gender.FEMALE,
+            patient_birth_date=date(1992, 5, 20),
+            target_language="ja",
+            status=CaseTransfer.Status.TRANSFERRED,
+        )
+
+        if agreement_status is not None:
+            chat_room = CaseChatRoom.objects.create(
+                medical_case=medical_case,
+                partner_hospital=self.partner,
+            )
+            CaseAgreement.objects.create(
+                chat_room=chat_room,
+                judgment_draft="경증 반응으로 판단됩니다.",
+                evidence_items=[],
+                status=agreement_status,
+                finalized_at=finalized_at,
+            )
+
+        return symptom_case, medical_case
+
+    def test_list_returns_only_own_completed_symptom_cases(self):
+        finalized_at = timezone.now() - timedelta(hours=1)
+        completed_symptom_case, completed_medical_case = (
+            self.create_history_case(
+                patient=self.patient,
+                patient_profile=self.patient_profile,
+                symptom_status=PatientSymptomCase.Status.COMPLETED,
+                procedure_name="보톡스",
+                procedure_date=date(2025, 8, 1),
+                agreement_status=CaseAgreement.Status.FINAL,
+                finalized_at=finalized_at,
+            )
+        )
+        self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.IN_COLLABORATION,
+            procedure_name="필러",
+            procedure_date=date(2025, 9, 1),
+            agreement_status=CaseAgreement.Status.IN_REVIEW,
+        )
+        self.create_history_case(
+            patient=self.other_patient,
+            patient_profile=self.other_patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="레이저",
+            procedure_date=date(2025, 10, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        item = response.data[0]
+        self.assertEqual(
+            item["medical_case_id"],
+            completed_medical_case.id,
+        )
+        self.assertEqual(
+            item["symptom_case_id"],
+            completed_symptom_case.symptom_case_id,
+        )
+        self.assertEqual(item["status"], "COMPLETED")
+        self.assertEqual(item["procedure_name"], "보톡스")
+        self.assertEqual(item["procedure_area"], "이마")
+        self.assertEqual(
+            item["procedure_hospital_name"],
+            "ABC Beauty Clinic",
+        )
+        self.assertEqual(
+            item["finalized_at"],
+            finalized_at.isoformat().replace("+00:00", "Z"),
+        )
+
+    def test_hospital_cannot_read_patient_procedure_history(self):
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class HospitalDashboardAndReceivedCaseTests(APITestCase):
     def setUp(self):
         self.hospital = User.objects.create_user(

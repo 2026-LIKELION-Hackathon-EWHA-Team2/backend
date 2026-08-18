@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from django.conf import settings
 from accounts.models import User
-from selfsymptoms.models import DiagnosisAnalysis
+from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 
 from .models import (
     CaseAgreement,
@@ -55,6 +55,7 @@ from .serializers import (
     CaseCollaborationRequestDetailSerializer,
     CaseCollaborationRequestSerializer,
     MedicalCaseDetailSerializer,
+    PatientProcedureHistoryListSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -232,6 +233,50 @@ class MedicalCaseDetailView(APIView):
             MedicalCaseDetailSerializer(
                 medical_case
             ).data
+        )
+
+
+class PatientProcedureHistoryListView(generics.ListAPIView):
+    permission_classes = [IsPatient]
+    serializer_class = PatientProcedureHistoryListSerializer
+
+    def get_queryset(self):
+        return (
+            MedicalCase.objects
+            .filter(
+                patient=self.request.user,
+                case_transfers__symptom_case__status=(
+                    PatientSymptomCase.Status.COMPLETED
+                ),
+            )
+            .select_related("origin_hospital")
+            .prefetch_related(
+                Prefetch(
+                    "case_transfers",
+                    queryset=(
+                        CaseTransfer.objects
+                        .filter(
+                            symptom_case__status=(
+                                PatientSymptomCase.Status.COMPLETED
+                            )
+                        )
+                        .select_related("symptom_case")
+                    ),
+                    to_attr="completed_case_transfers",
+                )
+            )
+            .annotate(
+                finalized_at=Max(
+                    "chat_rooms__agreement__finalized_at",
+                    filter=Q(
+                        chat_rooms__agreement__status=(
+                            CaseAgreement.Status.FINAL
+                        )
+                    ),
+                )
+            )
+            .order_by("-procedure_date", "-id")
+            .distinct()
         )
 
 
