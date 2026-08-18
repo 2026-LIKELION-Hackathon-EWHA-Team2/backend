@@ -490,6 +490,22 @@ class HospitalRecommendationSelectView(
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        #매칭 요청 상태 확인
+        allowed_statuses = {
+            HospitalMatchRequest.Status.COMPLETED,
+            HospitalMatchRequest.Status.SELECTED,
+        }
+
+        if match_request.status not in allowed_statuses:
+            return Response(
+                {
+                    "detail": (
+                        "현재 상태에서는 추천 병원을 "
+                        "선택할 수 없습니다."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # -------------------------
         # 기존 선택 병원 초기화
         # -------------------------
