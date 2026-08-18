@@ -21,10 +21,16 @@ from .views import (
     HospitalDashboardView,
     PartnerCaseTransferListView,
     PartnerCaseTransferDetailView,
+    PatientProcedureHistoryListView,
 )
 
 
 urlpatterns = [
+    path(
+        "procedure-histories/",
+        PatientProcedureHistoryListView.as_view(),
+        name="patient-procedure-history-list",
+    ),
     path(
         "chat/rooms/",
         CaseChatRoomListView.as_view(),

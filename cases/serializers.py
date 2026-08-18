@@ -120,6 +120,58 @@ class MedicalCaseDetailSerializer(serializers.ModelSerializer):
         )
 
 
+class PatientProcedureHistoryListSerializer(
+    serializers.ModelSerializer
+):
+    medical_case_id = serializers.IntegerField(
+        source="id",
+        read_only=True,
+    )
+    symptom_case_id = serializers.SerializerMethodField()
+    case_number = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    procedure_hospital_name = serializers.CharField(
+        source="origin_hospital.name",
+        read_only=True,
+    )
+    finalized_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = MedicalCase
+        fields = (
+            "medical_case_id",
+            "symptom_case_id",
+            "case_number",
+            "status",
+            "procedure_name",
+            "procedure_area",
+            "procedure_date",
+            "procedure_hospital_name",
+            "finalized_at",
+        )
+
+    @staticmethod
+    def get_completed_transfer(obj):
+        transfers = getattr(obj, "completed_case_transfers", [])
+        return transfers[0] if transfers else None
+
+    def get_symptom_case_id(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        return transfer.symptom_case_id if transfer else None
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj)
+
+    def get_status(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        if transfer is None:
+            return None
+        return transfer.symptom_case.status
+
+
 class CaseCollaborationRequestSerializer(
     serializers.ModelSerializer
 ):
