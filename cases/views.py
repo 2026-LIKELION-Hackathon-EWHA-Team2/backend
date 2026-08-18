@@ -52,6 +52,7 @@ from .serializers import (
     CaseAgreementRevisionSerializer,
     CaseChatMessageSerializer,
     CaseChatRoomListSerializer,
+    CaseCollaborationRequestDetailSerializer,
     CaseCollaborationRequestSerializer,
     MedicalCaseDetailSerializer,
 )
@@ -502,7 +503,7 @@ class CaseCollaborationRequestDetailView(
     """협진에 참여한 원 병원과 협진 병원이 요청 상세를 조회합니다."""
 
     permission_classes = [IsHospital]
-    serializer_class = CaseCollaborationRequestSerializer
+    serializer_class = CaseCollaborationRequestDetailSerializer
     lookup_url_kwarg = (
         "collaboration_request_id"
     )

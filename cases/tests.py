@@ -308,6 +308,42 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_collaboration_detail_has_header_display_fields(self):
+        requested_at = timezone.now() - timedelta(minutes=30)
+        collaboration_request = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+            requested_at=requested_at,
+        )
+
+        response = self.client.get(
+            reverse(
+                "collaboration-request-detail",
+                kwargs={
+                    "collaboration_request_id": (
+                        collaboration_request.id
+                    ),
+                },
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["patient_name"], "Anna Kim")
+        self.assertEqual(response.data["procedure_name"], "Botox")
+        self.assertEqual(response.data["procedure_area"], "Forehead")
+        self.assertEqual(
+            response.data["consultation_title"],
+            "Forehead Botox 상담",
+        )
+        self.assertEqual(
+            response.data["procedure_hospital_name"],
+            "Seoul Beauty Clinic",
+        )
+        self.assertEqual(
+            response.data["requested_at"],
+            requested_at.isoformat().replace("+00:00", "Z"),
+        )
+
     def test_collaboration_detail_is_hidden_from_unrelated_hospital(self):
         collaboration_request = self.create_request(
             self.anna,
