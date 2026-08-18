@@ -6,6 +6,8 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from cases.models import CaseAgreement
+
 from .models import (
     HospitalProfile,
     MedicalSpecialty,
@@ -68,15 +70,24 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         )
 
     def get_last_updated(self, obj):
-        latest_case_updated_at = (
-            obj.user.patient_cases
-            .order_by("-updated_at")
-            .values_list("updated_at", flat=True)
+        latest_finalized_at = (
+            CaseAgreement.objects
+            .filter(
+                chat_room__medical_case__patient=obj.user,
+                status=CaseAgreement.Status.FINAL,
+                finalized_at__isnull=False,
+            )
+            .order_by("-finalized_at", "-id")
+            .values_list("finalized_at", flat=True)
             .first()
         )
-        value = latest_case_updated_at or obj.user.date_joined
 
-        return serializers.DateTimeField().to_representation(value)
+        if latest_finalized_at is None:
+            return None
+
+        return serializers.DateTimeField().to_representation(
+            latest_finalized_at
+        )
 
 
 # =========================================================

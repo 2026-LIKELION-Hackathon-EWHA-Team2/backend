@@ -6,7 +6,11 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from cases.models import MedicalCase
+from cases.models import (
+    CaseAgreement,
+    CaseChatRoom,
+    MedicalCase,
+)
 
 from .models import (
     HospitalProfile,
@@ -55,25 +59,29 @@ class PatientProfileReadTests(APITestCase):
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
-    def test_last_updated_uses_joined_at_without_cases(self):
+    def test_last_updated_is_null_without_final_agreement(self):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.data["last_updated"],
-            self.user.date_joined.isoformat().replace("+00:00", "Z"),
-        )
+        self.assertIsNone(response.data["last_updated"])
 
-    def test_last_updated_uses_latest_case_update(self):
+    def test_last_updated_uses_latest_final_agreement(self):
         origin_hospital = User.objects.create_user(
             username="origin-hospital",
             password="StrongPassword!2026",
             name="Origin Hospital",
             user_type=User.UserType.HOSPITAL,
         )
+        partner_hospital = User.objects.create_user(
+            username="partner-hospital",
+            password="StrongPassword!2026",
+            name="Partner Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
         older_case = MedicalCase.objects.create(
             patient=self.user,
             origin_hospital=origin_hospital,
+            partner_hospital=partner_hospital,
             procedure_name="Botox",
             procedure_area="Forehead",
             procedure_date="2026-08-01",
@@ -82,18 +90,35 @@ class PatientProfileReadTests(APITestCase):
         latest_case = MedicalCase.objects.create(
             patient=self.user,
             origin_hospital=origin_hospital,
+            partner_hospital=partner_hospital,
             procedure_name="Filler",
             procedure_area="Lip",
             procedure_date="2026-08-02",
             clinician_note="Latest case",
         )
-        older_updated_at = timezone.now() - timedelta(days=2)
-        latest_updated_at = timezone.now() - timedelta(days=1)
-        MedicalCase.objects.filter(pk=older_case.pk).update(
-            updated_at=older_updated_at,
+        older_finalized_at = timezone.now() - timedelta(days=2)
+        latest_finalized_at = timezone.now() - timedelta(days=1)
+        older_chat_room = CaseChatRoom.objects.create(
+            medical_case=older_case,
+            partner_hospital=partner_hospital,
         )
-        MedicalCase.objects.filter(pk=latest_case.pk).update(
-            updated_at=latest_updated_at,
+        latest_chat_room = CaseChatRoom.objects.create(
+            medical_case=latest_case,
+            partner_hospital=partner_hospital,
+        )
+        CaseAgreement.objects.create(
+            chat_room=older_chat_room,
+            judgment_draft="Older final agreement",
+            evidence_items=[],
+            status=CaseAgreement.Status.FINAL,
+            finalized_at=older_finalized_at,
+        )
+        CaseAgreement.objects.create(
+            chat_room=latest_chat_room,
+            judgment_draft="Latest final agreement",
+            evidence_items=[],
+            status=CaseAgreement.Status.FINAL,
+            finalized_at=latest_finalized_at,
         )
 
         response = self.client.get(self.url)
@@ -101,8 +126,46 @@ class PatientProfileReadTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.data["last_updated"],
-            latest_updated_at.isoformat().replace("+00:00", "Z"),
+            latest_finalized_at.isoformat().replace("+00:00", "Z"),
         )
+
+    def test_last_updated_ignores_non_final_agreement(self):
+        origin_hospital = User.objects.create_user(
+            username="non-final-origin-hospital",
+            password="StrongPassword!2026",
+            name="Origin Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        partner_hospital = User.objects.create_user(
+            username="non-final-partner-hospital",
+            password="StrongPassword!2026",
+            name="Partner Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        medical_case = MedicalCase.objects.create(
+            patient=self.user,
+            origin_hospital=origin_hospital,
+            partner_hospital=partner_hospital,
+            procedure_name="Botox",
+            procedure_area="Forehead",
+            procedure_date="2026-08-01",
+            clinician_note="In review",
+        )
+        chat_room = CaseChatRoom.objects.create(
+            medical_case=medical_case,
+            partner_hospital=partner_hospital,
+        )
+        CaseAgreement.objects.create(
+            chat_room=chat_room,
+            judgment_draft="Agreement in review",
+            evidence_items=[],
+            status=CaseAgreement.Status.IN_REVIEW,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data["last_updated"])
 
 
 class PatientSignUpConsentTests(APITestCase):
