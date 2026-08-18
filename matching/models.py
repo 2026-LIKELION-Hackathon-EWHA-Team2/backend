@@ -133,6 +133,10 @@ class HospitalMatchRequest(models.Model):
 
 class HospitalRecommendation(models.Model):
 
+    class SelectionSource(models.TextChoices):
+        AI_RECOMMENDATION = "AI_RECOMMENDATION", "AI 추천"
+        NETWORK = "NETWORK", "네트워크 병원"
+
     recommendation_id = models.BigAutoField(
         primary_key=True,
     )
@@ -185,6 +189,12 @@ class HospitalRecommendation(models.Model):
 
     is_selected = models.BooleanField(
         default=False,
+    )
+
+    selection_source = models.CharField(
+        max_length=30,
+        choices=SelectionSource.choices,
+        default=SelectionSource.AI_RECOMMENDATION,
     )
 
     created_at = models.DateTimeField(

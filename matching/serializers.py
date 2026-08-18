@@ -335,6 +335,7 @@ class HospitalRecommendationSerializer(
             "distance_km",
 
             "is_selected",
+            "selection_source",
 
             "created_at",
         ]
