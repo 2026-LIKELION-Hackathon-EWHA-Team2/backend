@@ -1,10 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import (
-    PatientSymptomCaseViewSet,
-    PatientSymptomImageViewSet,
-)
+from .views import PatientSymptomCaseViewSet
 
 
 router = DefaultRouter()
@@ -14,13 +11,6 @@ router.register(
     PatientSymptomCaseViewSet,
     basename="symptom-case",
 )
-
-router.register(
-    r"symptom-images",
-    PatientSymptomImageViewSet,
-    basename="symptom-image",
-)
-
 
 urlpatterns = [
     path("", include(router.urls)),

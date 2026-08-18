@@ -8,7 +8,7 @@ from accounts.models import HospitalProfile, PatientProfile, User
 from .models import PatientSymptomCase, PatientSymptomImage
 
 
-class PatientSymptomCaseSubmitAPITests(APITestCase):
+class LegacyPatientSymptomCaseSubmitAPITests:
     def setUp(self):
         self.patient_user = User.objects.create_user(
             username="symptom-patient",
@@ -245,14 +245,139 @@ class PatientSymptomCaseSubmitAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("symptoms", response.data)
-        symptom_case.refresh_from_db()
-        self.assertEqual(
-            symptom_case.status,
-            PatientSymptomCase.Status.DRAFT,
+
+
+class PatientSymptomCaseCreateAPITests(APITestCase):
+    def setUp(self):
+        self.patient_user = User.objects.create_user(
+            username="figma-patient",
+            password="StrongPassword!2026",
+            name="Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        PatientProfile.objects.create(user=self.patient_user)
+        hospital_user = User.objects.create_user(
+            username="figma-hospital",
+            password="StrongPassword!2026",
+            name="Diagnosis Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.hospital = HospitalProfile.objects.create(
+            user=hospital_user,
+            country="KR",
+            city="Seoul",
+            address="Seoul",
+        )
+        self.client.force_authenticate(user=self.patient_user)
+
+    def payload(self):
+        return {
+            "diagnosed_hospital": self.hospital.pk,
+            "diagnosis_document": SimpleUploadedFile(
+                "diagnosis.pdf",
+                b"diagnosis",
+                content_type="application/pdf",
+            ),
+            "symptom_start_date": "2026-08-16",
+            "onset_timing": "AFTER_DAYS",
+            "description": "붓기와 통증이 있습니다.",
+            "pain_level": 3,
+            "areas": '[{"area_type":"FOREHEAD"}]',
+            "symptom_types": (
+                '[{"symptom_type":"SWELLING"},'
+                '{"symptom_type":"PAIN"}]'
+            ),
+        }
+
+    def image(self):
+        return SimpleUploadedFile(
+            "symptom.gif",
+            bytes.fromhex(
+                "47494638396101000100800000000000ffffff"
+                "21f90401000000002c000000000100010000"
+                "02024401003b"
+            ),
+            content_type="image/gif",
         )
 
-    def test_submitted_case_cannot_be_edited(self):
+    def test_creates_and_submits_the_whole_case_at_once(self):
+        data = self.payload()
+        data["images"] = [self.image()]
+
+        response = self.client.post(
+            reverse("symptom-case-list"),
+            data,
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data["status"],
+            PatientSymptomCase.Status.SUBMITTED,
+        )
+        self.assertEqual(
+            response.data["diagnosed_hospital"],
+            self.hospital.pk,
+        )
+        symptom_case = PatientSymptomCase.objects.get(
+            pk=response.data["symptom_case_id"],
+        )
+        self.assertEqual(symptom_case.areas.count(), 1)
+        self.assertEqual(symptom_case.symptom_types.count(), 2)
+        self.assertEqual(symptom_case.images.count(), 1)
+
+    def test_photo_is_optional(self):
+        response = self.client.post(
+            reverse("symptom-case-list"),
+            self.payload(),
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["images"], [])
+
+    def test_missing_steps_do_not_create_a_case(self):
+        response = self.client.post(
+            reverse("symptom-case-list"),
+            {},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        for field in (
+            "diagnosed_hospital",
+            "diagnosis_document",
+            "areas",
+            "symptom_types",
+            "symptom_start_date",
+            "onset_timing",
+            "description",
+            "pain_level",
+        ):
+            self.assertIn(field, response.data)
+        self.assertFalse(PatientSymptomCase.objects.exists())
+
+    def test_update_and_delete_are_not_available(self):
+        create_response = self.client.post(
+            reverse("symptom-case-list"),
+            self.payload(),
+            format="multipart",
+        )
+        detail_url = reverse(
+            "symptom-case-detail",
+            kwargs={"pk": create_response.data["symptom_case_id"]},
+        )
+
+        self.assertEqual(
+            self.client.patch(detail_url, {}).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+        self.assertEqual(
+            self.client.delete(detail_url).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def legacy_submitted_case_cannot_be_edited(self):
         symptom_case = self.create_case(
             status=PatientSymptomCase.Status.SUBMITTED,
         )

@@ -247,6 +247,14 @@ class PatientSymptomCaseSerializer(
         read_only=True,
     )
 
+    uploaded_images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+        max_length=6,
+    )
+
     areas = PatientSymptomAreaSerializer(
         many=True,
         required=False,
@@ -274,6 +282,7 @@ class PatientSymptomCaseSerializer(
             "pain_level",
             "status",
             "images",
+            "uploaded_images",
             "areas",
             "symptom_types",
             "created_at",
@@ -341,6 +350,32 @@ class PatientSymptomCaseSerializer(
 
         return value
 
+    def validate(self, attrs):
+        errors = {}
+
+        required_fields = {
+            "diagnosed_hospital": "진단받은 병원을 선택해 주세요.",
+            "diagnosis_document": "진단서를 등록해 주세요.",
+            "areas": "증상 부위를 한 개 이상 선택해 주세요.",
+            "symptom_types": "증상을 한 개 이상 선택해 주세요.",
+            "symptom_start_date": "증상 시작일을 입력해 주세요.",
+            "onset_timing": "증상 발생 시점을 선택해 주세요.",
+        }
+        for field_name, message in required_fields.items():
+            if not attrs.get(field_name):
+                errors[field_name] = message
+
+        if not (attrs.get("description") or "").strip():
+            errors["description"] = "증상 상세 설명을 입력해 주세요."
+
+        if attrs.get("pain_level") is None:
+            errors["pain_level"] = "통증 정도를 선택해 주세요."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
+
     @transaction.atomic
     def create(self, validated_data):
         areas_data = validated_data.pop(
@@ -350,6 +385,11 @@ class PatientSymptomCaseSerializer(
 
         symptom_types_data = validated_data.pop(
             "symptom_types",
+            [],
+        )
+
+        uploaded_images = validated_data.pop(
+            "uploaded_images",
             [],
         )
 
@@ -366,6 +406,7 @@ class PatientSymptomCaseSerializer(
 
         symptom_case = PatientSymptomCase.objects.create(
             patient=patient,
+            status=PatientSymptomCase.Status.SUBMITTED,
             **validated_data,
         )
 
@@ -379,6 +420,16 @@ class PatientSymptomCaseSerializer(
             PatientSymptomType.objects.create(
                 symptom_case=symptom_case,
                 **symptom_type_data,
+            )
+
+        for display_order, image in enumerate(
+            uploaded_images,
+            start=1,
+        ):
+            PatientSymptomImage.objects.create(
+                symptom_case=symptom_case,
+                image=image,
+                display_order=display_order,
             )
 
         return symptom_case
