@@ -1,8 +1,9 @@
+import json
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -19,7 +20,12 @@ from .serializers import (
 )
 
 
-class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
+class PatientSymptomCaseViewSet(
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
     """
     개인 부작용 상태 기록 API
     """
@@ -87,6 +93,33 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
 
         return context
 
+    def create(self, request, *args, **kwargs):
+        if hasattr(request.data, "dict"):
+            data = request.data.dict()
+        else:
+            data = request.data.copy()
+
+        for field_name in ("areas", "symptom_types"):
+            value = data.get(field_name)
+            if isinstance(value, str):
+                try:
+                    data[field_name] = json.loads(value)
+                except json.JSONDecodeError:
+                    raise ValidationError({
+                        field_name: "올바른 JSON 배열 형식이어야 합니다."
+                    })
+
+        data["uploaded_images"] = request.FILES.getlist("images")
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+        )
+
     def perform_update(self, serializer):
         symptom_case = self.get_object()
         patient = self.get_patient_profile()
@@ -118,9 +151,8 @@ class PatientSymptomCaseViewSet(viewsets.ModelViewSet):
 
         instance.delete()
 
-    @action(detail=True, methods=["post"])
     @transaction.atomic
-    def submit(self, request, pk=None):
+    def _submit(self, request, pk=None):
         patient = self.get_patient_profile()
         symptom_case = get_object_or_404(
             PatientSymptomCase.objects
