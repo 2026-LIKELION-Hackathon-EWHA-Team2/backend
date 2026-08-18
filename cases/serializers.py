@@ -199,6 +199,41 @@ class CaseCollaborationRequestSerializer(
         return transfer.id if transfer else None
 
 
+class CaseCollaborationRequestDetailSerializer(
+    CaseCollaborationRequestSerializer
+):
+    patient_name = serializers.CharField(
+        source="medical_case.patient.name",
+        read_only=True,
+    )
+    procedure_name = serializers.CharField(
+        source="medical_case.procedure_name",
+        read_only=True,
+    )
+    procedure_area = serializers.CharField(
+        source="medical_case.procedure_area",
+        read_only=True,
+    )
+    consultation_title = serializers.SerializerMethodField()
+    procedure_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+
+    class Meta(CaseCollaborationRequestSerializer.Meta):
+        fields = CaseCollaborationRequestSerializer.Meta.fields + (
+            "patient_name",
+            "procedure_name",
+            "procedure_area",
+            "consultation_title",
+            "procedure_hospital_name",
+        )
+
+    def get_consultation_title(self, obj):
+        return (
+            f"{obj.medical_case.procedure_area} "
+            f"{obj.medical_case.procedure_name} 상담"
+        )
 
 
 class CaseChatMessageSerializer(serializers.ModelSerializer):
