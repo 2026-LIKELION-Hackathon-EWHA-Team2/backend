@@ -1,11 +1,12 @@
 from django.db import transaction
+from django.db.models import Max, Q
 
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import PatientProfile
+from accounts.models import HospitalProfile, PatientProfile
 from selfsymptoms.models import PatientSymptomCase
 
 from .models import (
@@ -17,9 +18,290 @@ from .serializers import (
     HospitalMatchConsentSerializer,
     HospitalMatchRequestSerializer,
     HospitalRecommendationSerializer,
+    HospitalSimpleSerializer,
 )
 
-from .services import generate_recommendations
+from .services import (
+    calculate_collaboration_score,
+    calculate_distance_km,
+    calculate_distance_score,
+    generate_recommendations,
+    get_collaboration_count,
+)
+
+
+def _japan_hospitals():
+    return (
+        HospitalProfile.objects
+        .filter(
+            Q(country__iexact="JP")
+            | Q(country__iexact="JAPAN")
+        )
+        .select_related("user")
+        .prefetch_related("specialties")
+    )
+
+
+class NetworkHospitalListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            patient = PatientProfile.objects.get(user=request.user)
+        except PatientProfile.DoesNotExist:
+            return Response(
+                {"detail": "환자 프로필이 존재하지 않습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        sort = request.query_params.get("sort", "distance")
+        if sort not in {"distance", "collaboration"}:
+            return Response(
+                {"detail": "sort는 distance 또는 collaboration이어야 합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        hospitals = []
+        for hospital in _japan_hospitals():
+            distance_km = None
+            if (
+                patient.latitude is not None
+                and patient.longitude is not None
+                and hospital.latitude is not None
+                and hospital.longitude is not None
+            ):
+                distance_km = calculate_distance_km(
+                    patient.latitude,
+                    patient.longitude,
+                    hospital.latitude,
+                    hospital.longitude,
+                )
+
+            hospital_data = HospitalSimpleSerializer(hospital).data
+            hospital_data["distance_km"] = distance_km
+            hospital_data["collaboration_count"] = (
+                get_collaboration_count(hospital)
+            )
+            hospitals.append(hospital_data)
+
+        if sort == "distance":
+            hospitals.sort(
+                key=lambda item: (
+                    item["distance_km"] is None,
+                    item["distance_km"] or 0,
+                    item["name"],
+                )
+            )
+        else:
+            hospitals.sort(
+                key=lambda item: (
+                    -item["collaboration_count"],
+                    item["distance_km"] is None,
+                    item["distance_km"] or 0,
+                    item["name"],
+                )
+            )
+
+        return Response(hospitals, status=status.HTTP_200_OK)
+
+
+class NetworkHospitalDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, hospital_id):
+        try:
+            patient = PatientProfile.objects.get(user=request.user)
+        except PatientProfile.DoesNotExist:
+            return Response(
+                {"detail": "환자 프로필이 존재하지 않습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            hospital = _japan_hospitals().get(hospital_id=hospital_id)
+        except HospitalProfile.DoesNotExist:
+            return Response(
+                {"detail": "네트워크 병원을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        distance_km = None
+        if (
+            patient.latitude is not None
+            and patient.longitude is not None
+            and hospital.latitude is not None
+            and hospital.longitude is not None
+        ):
+            distance_km = calculate_distance_km(
+                patient.latitude,
+                patient.longitude,
+                hospital.latitude,
+                hospital.longitude,
+            )
+
+        data = HospitalSimpleSerializer(hospital).data
+        data["distance_km"] = distance_km
+        data["collaboration_count"] = get_collaboration_count(hospital)
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class NetworkHospitalSelectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, hospital_id):
+        try:
+            patient = PatientProfile.objects.get(user=request.user)
+        except PatientProfile.DoesNotExist:
+            return Response(
+                {"detail": "환자 프로필이 존재하지 않습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            symptom_case = PatientSymptomCase.objects.select_for_update().get(
+                symptom_case_id=request.data.get("symptom_case_id"),
+                patient=patient,
+            )
+        except PatientSymptomCase.DoesNotExist:
+            return Response(
+                {"detail": "증상 케이스를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if symptom_case.status not in {
+            PatientSymptomCase.Status.SUBMITTED,
+            PatientSymptomCase.Status.MATCHING,
+            PatientSymptomCase.Status.HOSPITAL_SELECTED,
+        }:
+            return Response(
+                {"detail": "현재 상태에서는 병원을 선택할 수 없습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            hospital = _japan_hospitals().get(hospital_id=hospital_id)
+        except HospitalProfile.DoesNotExist:
+            return Response(
+                {"detail": "네트워크 병원을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if patient.latitude is None or patient.longitude is None:
+            return Response(
+                {"detail": "환자 프로필에 위치 좌표를 등록해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        match_request = (
+            HospitalMatchRequest.objects
+            .select_for_update()
+            .filter(
+                symptom_case=symptom_case,
+                patient=patient,
+                status__in=[
+                    HospitalMatchRequest.Status.COMPLETED,
+                    HospitalMatchRequest.Status.SELECTED,
+                ],
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if match_request is None:
+            match_request = HospitalMatchRequest.objects.create(
+                symptom_case=symptom_case,
+                patient=patient,
+                location_source=HospitalMatchRequest.LocationSource.PROFILE,
+                search_country="JP",
+                search_city=patient.city,
+                search_address=patient.address,
+                search_latitude=patient.latitude,
+                search_longitude=patient.longitude,
+                status=HospitalMatchRequest.Status.COMPLETED,
+            )
+
+        distance_km = None
+        distance_score = 0
+        if hospital.latitude is not None and hospital.longitude is not None:
+            distance_km = calculate_distance_km(
+                patient.latitude,
+                patient.longitude,
+                hospital.latitude,
+                hospital.longitude,
+            )
+            distance_score = calculate_distance_score(distance_km)
+
+        collaboration_count = get_collaboration_count(hospital)
+        collaboration_score = calculate_collaboration_score(hospital)
+        next_rank = (
+            match_request.recommendations.aggregate(Max("rank_number"))[
+                "rank_number__max"
+            ]
+            or 0
+        ) + 1
+
+        recommendation, created = HospitalRecommendation.objects.get_or_create(
+            match_request=match_request,
+            hospital=hospital,
+            defaults={
+                "batch_number": 1,
+                "rank_number": next_rank,
+                "specialty_score": 0,
+                "distance_score": distance_score,
+                "collaboration_score": collaboration_score,
+                "collaboration_count": collaboration_count,
+                "total_score": 0,
+                "distance_km": distance_km,
+                "selection_source": (
+                    HospitalRecommendation.SelectionSource.NETWORK
+                ),
+            },
+        )
+        if not created:
+            recommendation.selection_source = (
+                HospitalRecommendation.SelectionSource.NETWORK
+            )
+            recommendation.distance_km = distance_km
+            recommendation.distance_score = distance_score
+            recommendation.collaboration_count = collaboration_count
+            recommendation.collaboration_score = collaboration_score
+            recommendation.save(update_fields=[
+                "selection_source",
+                "distance_km",
+                "distance_score",
+                "collaboration_count",
+                "collaboration_score",
+            ])
+
+        match_request.recommendations.update(is_selected=False)
+        recommendation.is_selected = True
+        recommendation.save(update_fields=["is_selected"])
+
+        match_request.status = HospitalMatchRequest.Status.SELECTED
+        match_request.personal_information_provision_agreed = False
+        match_request.information_items_purpose_confirmed = False
+        match_request.medical_consultation_use_agreed = False
+        match_request.withdrawal_right_confirmed = False
+        match_request.agreed_at = None
+        match_request.save()
+
+        symptom_case.status = PatientSymptomCase.Status.HOSPITAL_SELECTED
+        symptom_case.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            {
+                "message": "협진 상대 병원이 선택되었습니다.",
+                "match_request_id": match_request.match_request_id,
+                "symptom_case_id": symptom_case.symptom_case_id,
+                "recommendation_id": recommendation.recommendation_id,
+                "partner_hospital_id": hospital.hospital_id,
+                "partner_hospital_user_id": hospital.user_id,
+                "partner_hospital_name": hospital.user.name,
+                "selection_source": recommendation.selection_source,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 # ==========================================
@@ -490,6 +772,22 @@ class HospitalRecommendationSelectView(
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        #매칭 요청 상태 확인
+        allowed_statuses = {
+            HospitalMatchRequest.Status.COMPLETED,
+            HospitalMatchRequest.Status.SELECTED,
+        }
+
+        if match_request.status not in allowed_statuses:
+            return Response(
+                {
+                    "detail": (
+                        "현재 상태에서는 추천 병원을 "
+                        "선택할 수 없습니다."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # -------------------------
         # 기존 선택 병원 초기화
         # -------------------------

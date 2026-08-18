@@ -14,7 +14,10 @@ from accounts.models import (
     User,
 )
 from accounts.specialties import SpecialtyCode
-from matching.models import HospitalMatchRequest
+from matching.models import (
+    HospitalMatchRequest,
+    HospitalRecommendation,
+)
 from selfsymptoms.models import PatientSymptomCase
 
 from .ai_service import analyze_required_specialty
@@ -200,4 +203,131 @@ class HospitalMatchRequestStatusTests(APITestCase):
         self.assertEqual(
             str(match_request.search_latitude),
             "37.4979000",
+        )
+
+
+class NetworkHospitalTests(APITestCase):
+    def setUp(self):
+        patient_user = User.objects.create_user(
+            username="network-patient",
+            password="StrongPassword!2026",
+            name="Network Patient",
+            user_type=User.UserType.PATIENT,
+        )
+        self.patient = PatientProfile.objects.create(
+            user=patient_user,
+            residence_country="JP",
+            city="Tokyo",
+            latitude="35.6762000",
+            longitude="139.6503000",
+        )
+        self.client.force_authenticate(user=patient_user)
+
+        near_user = User.objects.create_user(
+            username="near-japan-hospital",
+            password="StrongPassword!2026",
+            name="Near Japan Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.near_hospital = HospitalProfile.objects.create(
+            user=near_user,
+            country="JAPAN",
+            city="Tokyo",
+            address="Shibuya",
+            latitude="35.6763000",
+            longitude="139.6504000",
+        )
+
+        far_user = User.objects.create_user(
+            username="far-japan-hospital",
+            password="StrongPassword!2026",
+            name="Far Japan Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        self.far_hospital = HospitalProfile.objects.create(
+            user=far_user,
+            country="JP",
+            city="Osaka",
+            address="Chuo",
+            latitude="34.6937000",
+            longitude="135.5023000",
+        )
+
+        korean_user = User.objects.create_user(
+            username="korean-hospital",
+            password="StrongPassword!2026",
+            name="Korean Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
+        HospitalProfile.objects.create(
+            user=korean_user,
+            country="KR",
+            city="Seoul",
+            address="Gangnam",
+            latitude="37.4979000",
+            longitude="127.0276000",
+        )
+
+    def test_list_only_japan_hospitals_by_distance(self):
+        response = self.client.get(
+            reverse("network-hospital-list"),
+            {"sort": "distance"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["hospital_id"] for item in response.data],
+            [self.near_hospital.pk, self.far_hospital.pk],
+        )
+        self.assertIsNotNone(response.data[0]["distance_km"])
+
+    @patch("matching.views.get_collaboration_count")
+    def test_list_sorts_by_collaboration_count(self, count):
+        count.side_effect = lambda hospital: (
+            5 if hospital.pk == self.far_hospital.pk else 1
+        )
+
+        response = self.client.get(
+            reverse("network-hospital-list"),
+            {"sort": "collaboration"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["hospital_id"] for item in response.data],
+            [self.far_hospital.pk, self.near_hospital.pk],
+        )
+
+    def test_network_selection_reuses_existing_matching_flow(self):
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient,
+            status=PatientSymptomCase.Status.SUBMITTED,
+        )
+
+        response = self.client.post(
+            reverse(
+                "network-hospital-select",
+                kwargs={"hospital_id": self.near_hospital.pk},
+            ),
+            {"symptom_case_id": symptom_case.pk},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        recommendation = HospitalRecommendation.objects.get(
+            recommendation_id=response.data["recommendation_id"]
+        )
+        self.assertTrue(recommendation.is_selected)
+        self.assertEqual(
+            recommendation.selection_source,
+            HospitalRecommendation.SelectionSource.NETWORK,
+        )
+        self.assertEqual(
+            recommendation.match_request.status,
+            HospitalMatchRequest.Status.SELECTED,
+        )
+        symptom_case.refresh_from_db()
+        self.assertEqual(
+            symptom_case.status,
+            PatientSymptomCase.Status.HOSPITAL_SELECTED,
         )
