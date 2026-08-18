@@ -22,6 +22,7 @@ from .views import (
     PartnerCaseTransferListView,
     PartnerCaseTransferDetailView,
     PatientProcedureHistoryListView,
+    PatientProcedureHistoryDetailView,
 )
 
 
@@ -30,6 +31,11 @@ urlpatterns = [
         "procedure-histories/",
         PatientProcedureHistoryListView.as_view(),
         name="patient-procedure-history-list",
+    ),
+    path(
+        "procedure-histories/<int:medical_case_id>/",
+        PatientProcedureHistoryDetailView.as_view(),
+        name="patient-procedure-history-detail",
     ),
     path(
         "chat/rooms/",

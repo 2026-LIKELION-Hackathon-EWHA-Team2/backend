@@ -13,6 +13,7 @@ from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 
 from .models import (
     CaseAgreement,
+    CaseAgreementReview,
     CaseChatMessage,
     CaseChatMessageTranslation,
     CaseChatReadState,
@@ -111,6 +112,18 @@ class PatientProcedureHistoryListAPITests(APITestCase):
             password="TestPassword!2026",
             name="Tokyo Medical",
             user_type=User.UserType.HOSPITAL,
+        )
+        self.origin_profile = HospitalProfile.objects.create(
+            user=self.origin,
+            country="KR",
+            city="Seoul",
+            address="Gangnam",
+        )
+        self.partner_profile = HospitalProfile.objects.create(
+            user=self.partner,
+            country="JP",
+            city="Tokyo",
+            address="Chiyoda",
         )
         self.url = reverse("patient-procedure-history-list")
 
@@ -218,10 +231,188 @@ class PatientProcedureHistoryListAPITests(APITestCase):
             item["procedure_hospital_name"],
             "ABC Beauty Clinic",
         )
+        self.assertEqual(item["procedure_hospital_country"], "KR")
+        self.assertEqual(item["procedure_hospital_city"], "Seoul")
         self.assertEqual(
             item["finalized_at"],
             finalized_at.isoformat().replace("+00:00", "Z"),
         )
+
+    def test_detail_returns_completed_final_history(self):
+        finalized_at = timezone.now() - timedelta(hours=1)
+        symptom_case, medical_case = self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="보톡스",
+            procedure_date=date(2025, 8, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=finalized_at,
+        )
+        agreement = CaseAgreement.objects.get(
+            chat_room__medical_case=medical_case,
+        )
+        agreement.evidence_items = [
+            {
+                "id": "evidence-1",
+                "order": 1,
+                "content": "부종이 경미합니다.",
+            }
+        ]
+        agreement.additional_opinion = "경과 관찰이 필요합니다."
+        agreement.save(
+            update_fields=(
+                "evidence_items",
+                "additional_opinion",
+                "updated_at",
+            )
+        )
+        origin_review = CaseAgreementReview.objects.create(
+            agreement=agreement,
+            hospital=self.origin,
+            reviewed_version=agreement.version,
+        )
+        partner_review = CaseAgreementReview.objects.create(
+            agreement=agreement,
+            hospital=self.partner,
+            reviewed_version=agreement.version,
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["medical_case_id"], medical_case.id)
+        self.assertEqual(
+            response.data["symptom_case_id"],
+            symptom_case.symptom_case_id,
+        )
+        self.assertEqual(response.data["status"], "COMPLETED")
+        self.assertEqual(response.data["procedure"]["name"], "보톡스")
+        self.assertEqual(
+            response.data["procedure"]["hospital_name"],
+            "ABC Beauty Clinic",
+        )
+        self.assertEqual(
+            response.data["procedure"]["hospital_country"],
+            "KR",
+        )
+        self.assertEqual(
+            response.data["procedure"]["hospital_city"],
+            "Seoul",
+        )
+        self.assertEqual(
+            response.data["collaboration"]["partner_hospital_name"],
+            "Tokyo Medical",
+        )
+        final_agreement = response.data["final_agreement"]
+        self.assertEqual(final_agreement["agreement_id"], agreement.id)
+        self.assertEqual(final_agreement["status"], "FINAL")
+        self.assertEqual(
+            final_agreement["judgment_draft"],
+            "경증 반응으로 판단됩니다.",
+        )
+        self.assertEqual(
+            final_agreement["evidence_items"],
+            agreement.evidence_items,
+        )
+        self.assertEqual(
+            final_agreement["additional_opinion"],
+            "경과 관찰이 필요합니다.",
+        )
+        self.assertEqual(
+            [
+                review["hospital_id"]
+                for review in final_agreement["reviews"]
+            ],
+            [origin_review.hospital_id, partner_review.hospital_id],
+        )
+
+    def test_detail_hides_other_patients_history(self):
+        _, medical_case = self.create_history_case(
+            patient=self.other_patient,
+            patient_profile=self.other_patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="레이저",
+            procedure_date=date(2025, 10, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_detail_hides_history_before_final_agreement(self):
+        _, medical_case = self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="필러",
+            procedure_date=date(2025, 9, 1),
+            agreement_status=CaseAgreement.Status.IN_REVIEW,
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_detail_hides_history_without_agreement(self):
+        _, medical_case = self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="필러",
+            procedure_date=date(2025, 9, 1),
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_hospital_cannot_read_patient_procedure_history_detail(self):
+        _, medical_case = self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="보톡스",
+            procedure_date=date(2025, 8, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_hospital_cannot_read_patient_procedure_history(self):
         self.client.force_authenticate(user=self.origin)

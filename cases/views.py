@@ -55,6 +55,7 @@ from .serializers import (
     CaseCollaborationRequestDetailSerializer,
     CaseCollaborationRequestSerializer,
     MedicalCaseDetailSerializer,
+    PatientProcedureHistoryDetailSerializer,
     PatientProcedureHistoryListSerializer,
 )
 
@@ -249,7 +250,10 @@ class PatientProcedureHistoryListView(generics.ListAPIView):
                     PatientSymptomCase.Status.COMPLETED
                 ),
             )
-            .select_related("origin_hospital")
+            .select_related(
+                "origin_hospital",
+                "origin_hospital__hospital_profile",
+            )
             .prefetch_related(
                 Prefetch(
                     "case_transfers",
@@ -276,6 +280,77 @@ class PatientProcedureHistoryListView(generics.ListAPIView):
                 )
             )
             .order_by("-procedure_date", "-id")
+            .distinct()
+        )
+
+
+class PatientProcedureHistoryDetailView(generics.RetrieveAPIView):
+    permission_classes = [IsPatient]
+    serializer_class = PatientProcedureHistoryDetailSerializer
+    lookup_url_kwarg = "medical_case_id"
+
+    def get_queryset(self):
+        final_chat_rooms = (
+            CaseChatRoom.objects
+            .filter(
+                agreement__status=CaseAgreement.Status.FINAL,
+                agreement__finalized_at__isnull=False,
+            )
+            .select_related(
+                "partner_hospital",
+                "agreement",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "agreement__reviews",
+                    queryset=(
+                        CaseAgreementReview.objects
+                        .select_related("hospital")
+                        .order_by("reviewed_at", "id")
+                    ),
+                )
+            )
+            .order_by("-agreement__finalized_at", "-id")
+        )
+
+        return (
+            MedicalCase.objects
+            .filter(
+                patient=self.request.user,
+                case_transfers__symptom_case__status=(
+                    PatientSymptomCase.Status.COMPLETED
+                ),
+                chat_rooms__agreement__status=(
+                    CaseAgreement.Status.FINAL
+                ),
+                chat_rooms__agreement__finalized_at__isnull=False,
+            )
+            .select_related(
+                "origin_hospital",
+                "origin_hospital__hospital_profile",
+                "partner_hospital",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "case_transfers",
+                    queryset=(
+                        CaseTransfer.objects
+                        .filter(
+                            symptom_case__status=(
+                                PatientSymptomCase.Status.COMPLETED
+                            )
+                        )
+                        .select_related("symptom_case")
+                        .order_by("id")
+                    ),
+                    to_attr="completed_case_transfers",
+                ),
+                Prefetch(
+                    "chat_rooms",
+                    queryset=final_chat_rooms,
+                    to_attr="final_agreement_chat_rooms",
+                ),
+            )
             .distinct()
         )
 

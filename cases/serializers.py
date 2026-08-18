@@ -134,6 +134,14 @@ class PatientProcedureHistoryListSerializer(
         source="origin_hospital.name",
         read_only=True,
     )
+    procedure_hospital_country = serializers.CharField(
+        source="origin_hospital.hospital_profile.country",
+        read_only=True,
+    )
+    procedure_hospital_city = serializers.CharField(
+        source="origin_hospital.hospital_profile.city",
+        read_only=True,
+    )
     finalized_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -150,6 +158,8 @@ class PatientProcedureHistoryListSerializer(
             "procedure_area",
             "procedure_date",
             "procedure_hospital_name",
+            "procedure_hospital_country",
+            "procedure_hospital_city",
             "finalized_at",
         )
 
@@ -170,6 +180,110 @@ class PatientProcedureHistoryListSerializer(
         if transfer is None:
             return None
         return transfer.symptom_case.status
+
+
+class PatientProcedureHistoryDetailSerializer(
+    serializers.ModelSerializer
+):
+    medical_case_id = serializers.IntegerField(
+        source="id",
+        read_only=True,
+    )
+    symptom_case_id = serializers.SerializerMethodField()
+    case_number = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    procedure = serializers.SerializerMethodField()
+    collaboration = serializers.SerializerMethodField()
+    final_agreement = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MedicalCase
+        fields = (
+            "medical_case_id",
+            "symptom_case_id",
+            "case_number",
+            "status",
+            "procedure",
+            "collaboration",
+            "final_agreement",
+        )
+
+    @staticmethod
+    def get_completed_transfer(obj):
+        transfers = getattr(obj, "completed_case_transfers", [])
+        return transfers[0] if transfers else None
+
+    @staticmethod
+    def get_final_chat_room(obj):
+        chat_rooms = getattr(obj, "final_agreement_chat_rooms", [])
+        return chat_rooms[0] if chat_rooms else None
+
+    def get_symptom_case_id(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        return transfer.symptom_case_id if transfer else None
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj)
+
+    def get_status(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        if transfer is None:
+            return None
+        return transfer.symptom_case.status
+
+    def get_procedure(self, obj):
+        hospital_profile = obj.origin_hospital.hospital_profile
+        return {
+            "name": obj.procedure_name,
+            "area": obj.procedure_area,
+            "date": serializers.DateField().to_representation(
+                obj.procedure_date
+            ),
+            "hospital_name": obj.origin_hospital.name,
+            "hospital_country": hospital_profile.country,
+            "hospital_city": hospital_profile.city,
+        }
+
+    def get_collaboration(self, obj):
+        chat_room = self.get_final_chat_room(obj)
+        agreement = chat_room.agreement
+        return {
+            "partner_hospital_name": chat_room.partner_hospital.name,
+            "finalized_at": (
+                serializers.DateTimeField().to_representation(
+                    agreement.finalized_at
+                )
+            ),
+        }
+
+    def get_final_agreement(self, obj):
+        chat_room = self.get_final_chat_room(obj)
+        agreement = chat_room.agreement
+        return {
+            "agreement_id": agreement.id,
+            "version": agreement.version,
+            "status": agreement.status,
+            "judgment_draft": agreement.judgment_draft,
+            "evidence_items": agreement.evidence_items,
+            "additional_opinion": agreement.additional_opinion,
+            "finalized_at": (
+                serializers.DateTimeField().to_representation(
+                    agreement.finalized_at
+                )
+            ),
+            "reviews": [
+                {
+                    "hospital_id": review.hospital_id,
+                    "hospital_name": review.hospital.name,
+                    "reviewed_at": (
+                        serializers.DateTimeField().to_representation(
+                            review.reviewed_at
+                        )
+                    ),
+                }
+                for review in agreement.reviews.all()
+            ],
+        }
 
 
 class CaseCollaborationRequestSerializer(
