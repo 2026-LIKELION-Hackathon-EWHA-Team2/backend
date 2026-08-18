@@ -1005,15 +1005,128 @@ class CaseTransferFlowTests(APITestCase):
         )
         self.assertEqual(CaseTransfer.objects.count(), 1)
 
-    def test_patient_transfer_list_endpoint_is_not_exposed(self):
+    def test_patient_transfer_list_returns_ai_analyzed_untransferred_case(self):
+        create_response = self.create_transfer()
+
         response = self.client.get(
             reverse("case-transfer-list-create"),
         )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        item = response.data[0]
+        self.assertEqual(item["id"], create_response.data["id"])
+        self.assertEqual(item["symptom_case_id"], self.symptom_case.pk)
+        self.assertEqual(item["recommendation_id"], self.recommendation.pk)
+        self.assertEqual(item["patient_name"], "Patient")
+        self.assertEqual(item["partner_hospital_name"], "Partner Hospital")
+        self.assertEqual(item["origin_hospital_name"], "Origin Hospital")
+        self.assertEqual(item["procedure_name"], "Botox")
+        self.assertEqual(item["procedure_area"], "Forehead")
+        self.assertEqual(item["procedure_date"], "2026-08-09")
         self.assertEqual(
-            response.status_code,
-            status.HTTP_405_METHOD_NOT_ALLOWED,
+            item["status"],
+            CaseTransfer.Status.REVIEW_REQUIRED,
         )
+
+    def test_ready_to_transfer_case_remains_in_patient_transfer_list(self):
+        create_response = self.create_transfer()
+        transfer_id = create_response.data["id"]
+        self.client.patch(
+            reverse(
+                "case-transfer-review",
+                kwargs={"transfer_id": transfer_id},
+            ),
+            {
+                "procedure_medication_agreed": True,
+                "adverse_effect_clinician_note_agreed": True,
+                "overseas_ai_processing_agreed": True,
+            },
+            format="json",
+        )
+
+        response = self.client.get(reverse("case-transfer-list-create"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(
+            response.data[0]["status"],
+            CaseTransfer.Status.READY_TO_TRANSFER,
+        )
+
+    def test_transferred_case_is_hidden_from_patient_list_and_detail(self):
+        create_response = self.create_transfer()
+        transfer_id = create_response.data["id"]
+        self.client.patch(
+            reverse(
+                "case-transfer-review",
+                kwargs={"transfer_id": transfer_id},
+            ),
+            {
+                "procedure_medication_agreed": True,
+                "adverse_effect_clinician_note_agreed": True,
+                "overseas_ai_processing_agreed": True,
+            },
+            format="json",
+        )
+        self.client.post(
+            reverse(
+                "case-transfer-send",
+                kwargs={"transfer_id": transfer_id},
+            ),
+        )
+
+        list_response = self.client.get(
+            reverse("case-transfer-list-create")
+        )
+        detail_response = self.client.get(
+            reverse(
+                "case-transfer-detail",
+                kwargs={"transfer_id": transfer_id},
+            )
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.data, [])
+        self.assertEqual(detail_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patient_can_read_untransferred_transfer_detail(self):
+        create_response = self.create_transfer()
+
+        response = self.client.get(
+            reverse(
+                "case-transfer-detail",
+                kwargs={"transfer_id": create_response.data["id"]},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], create_response.data["id"])
+        self.assertEqual(
+            response.data["structured_data"]["procedure"]["name"],
+            "Botox",
+        )
+        self.assertEqual(
+            response.data["status"],
+            CaseTransfer.Status.REVIEW_REQUIRED,
+        )
+
+    def test_hospital_cannot_read_patient_transfer_list_or_detail(self):
+        create_response = self.create_transfer()
+        self.client.force_authenticate(user=self.partner)
+
+        list_response = self.client.get(
+            reverse("case-transfer-list-create")
+        )
+        detail_response = self.client.get(
+            reverse(
+                "case-transfer-detail",
+                kwargs={"transfer_id": create_response.data["id"]},
+            )
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_hospital_selection_does_not_create_collaboration_request(self):
         response = self.client.post(

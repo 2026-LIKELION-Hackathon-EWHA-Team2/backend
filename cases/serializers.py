@@ -819,6 +819,62 @@ class CaseTransferDetailSerializer(serializers.ModelSerializer):
         return data
 
 
+class CaseTransferListSerializer(serializers.ModelSerializer):
+    case_number = serializers.SerializerMethodField()
+    symptom_case_id = serializers.IntegerField(read_only=True)
+    recommendation_id = serializers.IntegerField(read_only=True)
+    medical_case_id = serializers.IntegerField(read_only=True)
+    partner_hospital_id = serializers.IntegerField(read_only=True)
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    procedure_name = serializers.CharField(
+        source="medical_case.procedure_name",
+        read_only=True,
+    )
+    procedure_area = serializers.CharField(
+        source="medical_case.procedure_area",
+        read_only=True,
+    )
+    procedure_date = serializers.DateField(
+        source="medical_case.procedure_date",
+        read_only=True,
+    )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
+
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "id",
+            "case_number",
+            "symptom_case_id",
+            "recommendation_id",
+            "medical_case_id",
+            "patient_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "origin_hospital_name",
+            "procedure_name",
+            "procedure_area",
+            "procedure_date",
+            "ai_translation_summary",
+            "status",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj.medical_case)
+
+
 class PartnerCaseTransferSerializer(serializers.ModelSerializer):
     case_number = serializers.SerializerMethodField()
     partner_hospital_name = serializers.CharField(

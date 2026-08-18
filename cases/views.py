@@ -41,10 +41,11 @@ from .services import (
 
 
 
-from .permissions import IsCaseChatParticipant, IsHospital
+from .permissions import IsCaseChatParticipant, IsHospital, IsPatient
 from .serializers import (
     CaseTransferCreateSerializer,
     CaseTransferDetailSerializer,
+    CaseTransferListSerializer,
     CaseTransferReviewSerializer,
     PartnerCaseTransferSerializer,
     CaseAgreementSerializer,
@@ -1291,9 +1292,37 @@ class CaseAgreementGenerateView(APIView):
         )
 
 
-class CaseTransferListCreateView(generics.CreateAPIView):
+class CaseTransferListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = CaseTransferCreateSerializer
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsPatient()]
+        return super().get_permissions()
+
+    def get_serializer_class(self):
+        if self.request.method == "GET":
+            return CaseTransferListSerializer
+        return CaseTransferCreateSerializer
+
+    def get_queryset(self):
+        return (
+            CaseTransfer.objects
+            .filter(
+                patient=self.request.user,
+                status__in=(
+                    CaseTransfer.Status.REVIEW_REQUIRED,
+                    CaseTransfer.Status.READY_TO_TRANSFER,
+                ),
+            )
+            .select_related(
+                "recommendation",
+                "partner_hospital",
+                "medical_case",
+                "medical_case__origin_hospital",
+            )
+            .order_by("-created_at")
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1443,14 +1472,19 @@ class CaseTransferListCreateView(generics.CreateAPIView):
 
 
 class CaseTransferDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
     serializer_class = CaseTransferDetailSerializer
     lookup_url_kwarg = "transfer_id"
 
     def get_queryset(self):
         return CaseTransfer.objects.filter(
             patient=self.request.user,
+            status__in=(
+                CaseTransfer.Status.REVIEW_REQUIRED,
+                CaseTransfer.Status.READY_TO_TRANSFER,
+            ),
         ).select_related(
+            "recommendation",
             "partner_hospital",
             "medical_case",
             "medical_case__origin_hospital",
