@@ -491,29 +491,17 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
 
         return collaboration_request
 
-    def test_case_lookup_returns_only_today_items_and_filters_status(self):
+    def test_case_lookup_returns_all_dates_and_filters_status(self):
         old_time = timezone.now() - timedelta(days=7)
         requested = self.create_request(
             self.anna,
             CaseCollaborationRequest.Status.REQUESTED,
         )
-        old_completed = self.create_request(
+        completed = self.create_request(
             self.sato,
             CaseCollaborationRequest.Status.COMPLETED,
             requested_at=old_time,
             completed_at=old_time,
-        )
-        accepted = self.create_request(
-            self.sato,
-            CaseCollaborationRequest.Status.ACCEPTED,
-            requested_at=old_time,
-            accepted_at=timezone.now(),
-        )
-        completed = self.create_request(
-            self.anna,
-            CaseCollaborationRequest.Status.COMPLETED,
-            requested_at=old_time,
-            completed_at=timezone.now(),
         )
         self.create_request(
             self.anna,
@@ -528,11 +516,7 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             {item["id"] for item in response.data},
-            {requested.id, accepted.id, completed.id},
-        )
-        self.assertNotIn(
-            old_completed.id,
-            {item["id"] for item in response.data},
+            {requested.id, completed.id},
         )
 
         completed_response = self.client.get(
