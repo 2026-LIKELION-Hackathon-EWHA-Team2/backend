@@ -643,7 +643,9 @@ class CaseCollaborationRequestAcceptView(APIView):
     def post(self, request, collaboration_request_id):
         collaboration_request = get_object_or_404(
             CaseCollaborationRequest.objects
-            .select_for_update()
+            # Lock only the request row. PostgreSQL rejects FOR UPDATE when
+            # it also targets the nullable partner-hospital outer join.
+            .select_for_update(of=("self",))
             .select_related(
                 "medical_case",
                 "medical_case__origin_hospital",
