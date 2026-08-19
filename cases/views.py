@@ -536,6 +536,22 @@ class CaseCollaborationRequestListView(
         queryset = get_received_collaboration_requests_for_user(
             self.request.user,
         )
+        today = timezone.localdate()
+
+        queryset = queryset.filter(
+            Q(
+                status=CaseCollaborationRequest.Status.REQUESTED,
+                requested_at__date=today,
+            )
+            | Q(
+                status=CaseCollaborationRequest.Status.ACCEPTED,
+                accepted_at__date=today,
+            )
+            | Q(
+                status=CaseCollaborationRequest.Status.COMPLETED,
+                completed_at__date=today,
+            )
+        )
 
         status_value = (
             self.request.query_params.get("status")
@@ -582,9 +598,6 @@ class HospitalDashboardView(APIView):
             request.user,
         )
 
-        today_received = received_requests.filter(
-            requested_at__date=today,
-        )
         ongoing_collaborations = received_requests.filter(
             status=CaseCollaborationRequest.Status.ACCEPTED,
         ).order_by("-accepted_at", "-requested_at")
@@ -593,9 +606,13 @@ class HospitalDashboardView(APIView):
             {
                 "date": today,
                 "today_summary": {
-                    "received_count": today_received.count(),
-                    "under_review_count": today_received.filter(
+                    "new_request_count": received_requests.filter(
                         status=CaseCollaborationRequest.Status.REQUESTED,
+                        requested_at__date=today,
+                    ).count(),
+                    "in_review_count": received_requests.filter(
+                        status=CaseCollaborationRequest.Status.ACCEPTED,
+                        accepted_at__date=today,
                     ).count(),
                     "completed_count": received_requests.filter(
                         status=CaseCollaborationRequest.Status.COMPLETED,

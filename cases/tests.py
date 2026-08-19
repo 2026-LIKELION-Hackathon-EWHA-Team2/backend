@@ -491,17 +491,29 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
 
         return collaboration_request
 
-    def test_case_lookup_returns_all_received_dates_and_filters_status(self):
+    def test_case_lookup_returns_only_today_items_and_filters_status(self):
         old_time = timezone.now() - timedelta(days=7)
         requested = self.create_request(
             self.anna,
             CaseCollaborationRequest.Status.REQUESTED,
         )
-        completed = self.create_request(
+        old_completed = self.create_request(
             self.sato,
             CaseCollaborationRequest.Status.COMPLETED,
             requested_at=old_time,
             completed_at=old_time,
+        )
+        accepted = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            requested_at=old_time,
+            accepted_at=timezone.now(),
+        )
+        completed = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=timezone.now(),
         )
         self.create_request(
             self.anna,
@@ -516,7 +528,11 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             {item["id"] for item in response.data},
-            {requested.id, completed.id},
+            {requested.id, accepted.id, completed.id},
+        )
+        self.assertNotIn(
+            old_completed.id,
+            {item["id"] for item in response.data},
         )
 
         completed_response = self.client.get(
@@ -563,17 +579,28 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             self.anna,
             CaseCollaborationRequest.Status.REQUESTED,
         )
-        ongoing = self.create_request(
+        old_ongoing = self.create_request(
             self.sato,
             CaseCollaborationRequest.Status.ACCEPTED,
             requested_at=old_time,
             accepted_at=old_time,
+        )
+        today_ongoing = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            accepted_at=timezone.now(),
         )
         self.create_request(
             self.anna,
             CaseCollaborationRequest.Status.COMPLETED,
             requested_at=old_time,
             completed_at=timezone.now(),
+        )
+        self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.COMPLETED,
+            requested_at=old_time,
+            completed_at=old_time,
         )
 
         response = self.client.get(reverse("hospital-dashboard"))
@@ -582,14 +609,17 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(
             response.data["today_summary"],
             {
-                "received_count": 1,
-                "under_review_count": 1,
+                "new_request_count": 1,
+                "in_review_count": 1,
                 "completed_count": 1,
             },
         )
-        self.assertEqual(
-            [item["id"] for item in response.data["ongoing_collaborations"]],
-            [ongoing.id],
+        self.assertSetEqual(
+            {
+                item["id"]
+                for item in response.data["ongoing_collaborations"]
+            },
+            {old_ongoing.id, today_ongoing.id},
         )
 
     def test_dashboard_counts_total_unread_messages(self):
