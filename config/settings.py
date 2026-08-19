@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import timedelta
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -71,12 +72,14 @@ else:
 # Application definition
 
 INSTALLED_APPS = [
+    'cloudinary_storage',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'cloudinary',
     "corsheaders",
     'rest_framework',
     'rest_framework_simplejwt',
@@ -217,10 +220,46 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
+CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL")
+CLOUDINARY_CREDENTIALS = {
+    "CLOUD_NAME": os.environ.get(
+        "CLOUDINARY_CLOUD_NAME"
+    ),
+    "API_KEY": os.environ.get(
+        "CLOUDINARY_API_KEY"
+    ),
+    "API_SECRET": os.environ.get(
+        "CLOUDINARY_API_SECRET"
+    ),
+}
+CLOUDINARY_CONFIGURED = bool(
+    CLOUDINARY_URL
+    or all(CLOUDINARY_CREDENTIALS.values())
+)
+CLOUDINARY_STORAGE = (
+    CLOUDINARY_CREDENTIALS
+    if all(CLOUDINARY_CREDENTIALS.values())
+    else {}
+)
+
+if (
+    os.environ.get("RENDER")
+    or RENDER_EXTERNAL_HOSTNAME
+) and not CLOUDINARY_CONFIGURED:
+    raise ImproperlyConfigured(
+        "Cloudinary credentials are required on Render. "
+        "Set CLOUDINARY_URL or all of "
+        "CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, "
+        "and CLOUDINARY_API_SECRET."
+    )
+
 STORAGES = {
     "default": {
         "BACKEND": (
-            "django.core.files.storage."
+            "cloudinary_storage.storage."
+            "MediaCloudinaryStorage"
+            if CLOUDINARY_CONFIGURED
+            else "django.core.files.storage."
             "FileSystemStorage"
         ),
     },
