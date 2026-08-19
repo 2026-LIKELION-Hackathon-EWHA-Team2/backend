@@ -1,6 +1,5 @@
 import base64
 import json
-import mimetypes
 from django.conf import settings
 from openai import OpenAI
 
@@ -11,6 +10,34 @@ LANGUAGE_NAMES = {
     "ja": "Japanese",
     "zh": "Chinese",
 }
+
+
+def _detect_diagnosis_document_mime_type(document_bytes):
+    """Detect supported diagnosis document types from their file signature."""
+    if document_bytes.startswith(b"%PDF-"):
+        return "application/pdf"
+
+    if document_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+
+    if document_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+
+    raise ValueError(
+        "진단서 파일 형식을 확인할 수 없습니다. "
+        "PDF, JPG, JPEG, PNG 파일을 사용해 주세요."
+    )
+
+
+def _normalize_document_filename(filename, mime_type):
+    if mime_type != "application/pdf":
+        return filename
+
+    if filename.lower().endswith(".pdf"):
+        return filename
+
+    basename = filename.rsplit(".", 1)[0] if "." in filename else filename
+    return f"{basename or 'diagnosis_document'}.pdf"
 
 
 def translate_medical_message(
@@ -191,11 +218,14 @@ def analyze_diagnosis_document(
     if not document_bytes:
         raise ValueError("진단서 파일이 비어 있습니다.")
 
-    filename = document.name.rsplit("/", 1)[-1]
-    mime_type = (
-        mimetypes.guess_type(filename)[0]
-        or "application/octet-stream"
+    filename = (
+        str(document.name)
+        .replace("\\", "/")
+        .rsplit("/", 1)[-1]
+        or "diagnosis_document"
     )
+    mime_type = _detect_diagnosis_document_mime_type(document_bytes)
+    filename = _normalize_document_filename(filename, mime_type)
     encoded = base64.b64encode(document_bytes).decode("ascii")
     data_url = f"data:{mime_type};base64,{encoded}"
 
