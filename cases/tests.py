@@ -1066,14 +1066,6 @@ class CaseAgreementAPITests(APITestCase):
             "case-agreement-review",
             kwargs=url_kwargs,
         )
-        self.finalize_url = reverse(
-            "case-agreement-finalize",
-            kwargs=url_kwargs,
-        )
-        self.revision_request_url = reverse(
-            "case-agreement-revision-request",
-            kwargs=url_kwargs,
-        )
         self.payload = {
             "judgment_draft": "경과 관찰이 필요합니다.",
             "evidence_items": [
@@ -1237,7 +1229,7 @@ class CaseAgreementAPITests(APITestCase):
             {"detail": "AI 합의안 초안을 생성하지 못했습니다."},
         )
 
-    def test_both_hospitals_must_review_before_explicit_finalize(self):
+    def test_second_hospital_review_finalizes_immediately(self):
         self.create_agreement()
         first_response = self.client.post(self.review_url, format="json")
         self.assertEqual(
@@ -1260,16 +1252,10 @@ class CaseAgreementAPITests(APITestCase):
         )
 
         self.client.force_authenticate(user=self.partner)
-        second_response = self.client.post(self.review_url, format="json")
-
+        before_second_review = self.client.get(self.detail_url)
+        self.assertTrue(before_second_review.data["can_finalize"])
         self.assertEqual(
-            second_response.data["status"],
-            CaseAgreement.Status.IN_REVIEW,
-        )
-        self.assertTrue(second_response.data["all_reviews_completed"])
-        self.assertTrue(second_response.data["can_finalize"])
-        self.assertEqual(
-            second_response.data["primary_action"],
+            before_second_review.data["primary_action"],
             {
                 "code": "FINALIZE",
                 "label": "최종 합의 완료",
@@ -1277,19 +1263,16 @@ class CaseAgreementAPITests(APITestCase):
             },
         )
 
-        final_response = self.client.post(
-            self.finalize_url,
-            format="json",
-        )
+        second_response = self.client.post(self.review_url, format="json")
 
-        self.assertEqual(final_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            final_response.data["status"],
+            second_response.data["status"],
             CaseAgreement.Status.FINAL,
         )
-        self.assertFalse(final_response.data["can_finalize"])
+        self.assertTrue(second_response.data["all_reviews_completed"])
+        self.assertFalse(second_response.data["can_finalize"])
         self.assertEqual(
-            final_response.data["primary_action"],
+            second_response.data["primary_action"],
             {
                 "code": "VIEW_FINAL",
                 "label": "최종 합의안 보기",
@@ -1297,29 +1280,56 @@ class CaseAgreementAPITests(APITestCase):
             },
         )
 
-    def test_finalize_is_blocked_until_both_hospitals_review(self):
+    def test_explicit_finalize_endpoint_is_not_exposed(self):
         self.create_agreement()
-        self.client.post(self.review_url, format="json")
-
-        response = self.client.post(self.finalize_url, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = self.client.post(
+            f"{self.detail_url}finalize/",
+            format="json",
+        )
         self.assertEqual(
-            response.data,
-            {
-                "detail": (
-                    "양측 병원의 검토가 완료된 후 "
-                    "최종 합의할 수 있습니다."
-                )
-            },
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
         )
 
-    def test_final_agreement_requires_revision_request(self):
+    def test_first_completion_remains_valid_after_both_hospitals_edit(self):
+        self.create_agreement()
+
+        first_review = self.client.post(self.review_url, format="json")
+        self.assertEqual(
+            first_review.data["status"],
+            CaseAgreement.Status.IN_REVIEW,
+        )
+
+        first_edit = self.client.patch(
+            self.detail_url,
+            {"judgment_draft": "첫 번째 병원의 추가 수정"},
+            format="json",
+        )
+        self.assertFalse(first_edit.data["requires_re_review"])
+        self.assertTrue(first_edit.data["reviews"][0]["is_current_version"])
+
+        self.client.force_authenticate(user=self.partner)
+        second_edit = self.client.patch(
+            self.detail_url,
+            {"additional_opinion": "두 번째 병원의 최종 수정"},
+            format="json",
+        )
+        self.assertFalse(second_edit.data["requires_re_review"])
+        self.assertEqual(len(second_edit.data["reviews"]), 1)
+        self.assertTrue(second_edit.data["reviews"][0]["is_current_version"])
+
+        final_response = self.client.post(self.review_url, format="json")
+        self.assertEqual(
+            final_response.data["status"],
+            CaseAgreement.Status.FINAL,
+        )
+        self.assertFalse(final_response.data["can_edit"])
+
+    def test_final_agreement_cannot_be_edited_or_reopened(self):
         self.create_agreement()
         self.client.post(self.review_url, format="json")
         self.client.force_authenticate(user=self.partner)
         self.client.post(self.review_url, format="json")
-        self.client.post(self.finalize_url, format="json")
 
         blocked = self.client.patch(
             self.detail_url,
@@ -1331,20 +1341,19 @@ class CaseAgreementAPITests(APITestCase):
             blocked.data,
             {
                 "detail": (
-                    "최종 합의 내용은 수정 요청 후 "
-                    "변경할 수 있습니다."
+                    "최종 합의가 완료된 후에는 "
+                    "수정할 수 없습니다."
                 )
             },
         )
 
-        reopened = self.client.post(
-            self.revision_request_url,
+        reopen_response = self.client.post(
+            f"{self.detail_url}revision-request/",
             format="json",
         )
-        self.assertEqual(reopened.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            reopened.data["status"],
-            CaseAgreement.Status.IN_REVIEW,
+            reopen_response.status_code,
+            status.HTTP_404_NOT_FOUND,
         )
 
     def test_outside_hospital_cannot_read_agreement(self):
@@ -1907,21 +1916,9 @@ class CaseTransferFlowTests(APITestCase):
         final_review = self.client.post(review_url, format="json")
         self.assertEqual(
             final_review.data["status"],
-            CaseAgreement.Status.IN_REVIEW,
-        )
-        self.assertTrue(final_review.data["all_reviews_completed"])
-
-        finalize_response = self.client.post(
-            reverse(
-                "case-agreement-finalize",
-                kwargs=agreement_kwargs,
-            ),
-            format="json",
-        )
-        self.assertEqual(
-            finalize_response.data["status"],
             CaseAgreement.Status.FINAL,
         )
+        self.assertTrue(final_review.data["all_reviews_completed"])
 
         collaboration_request.refresh_from_db()
         self.symptom_case.refresh_from_db()
@@ -1935,26 +1932,24 @@ class CaseTransferFlowTests(APITestCase):
             PatientSymptomCase.Status.COMPLETED,
         )
 
-        revision_response = self.client.post(
-            reverse(
-                "case-agreement-revision-request",
-                kwargs=agreement_kwargs,
-            ),
+        blocked_edit = self.client.patch(
+            reverse("case-agreement-detail", kwargs=agreement_kwargs),
+            {"judgment_draft": "최종 합의 후 수정 시도"},
             format="json",
         )
         self.assertEqual(
-            revision_response.status_code,
-            status.HTTP_200_OK,
+            blocked_edit.status_code,
+            status.HTTP_400_BAD_REQUEST,
         )
 
         collaboration_request.refresh_from_db()
         self.symptom_case.refresh_from_db()
         self.assertEqual(
             collaboration_request.status,
-            CaseCollaborationRequest.Status.ACCEPTED,
+            CaseCollaborationRequest.Status.COMPLETED,
         )
-        self.assertIsNone(collaboration_request.completed_at)
+        self.assertIsNotNone(collaboration_request.completed_at)
         self.assertEqual(
             self.symptom_case.status,
-            PatientSymptomCase.Status.IN_COLLABORATION,
+            PatientSymptomCase.Status.COMPLETED,
         )

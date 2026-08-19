@@ -856,11 +856,15 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
 
     def get_can_finalize(self, obj):
         request = self.context.get("request")
+        if request is None or obj.status == CaseAgreement.Status.FINAL:
+            return False
+
+        reviewed_ids = self.get_current_reviewed_hospital_ids(obj)
+        counterpart_ids = self.get_participant_ids(obj) - {request.user.id}
         return bool(
-            request
-            and request.user.id in self.get_participant_ids(obj)
-            and obj.status != CaseAgreement.Status.FINAL
-            and self.get_all_reviews_completed(obj)
+            request.user.id in self.get_participant_ids(obj)
+            and request.user.id not in reviewed_ids
+            and counterpart_ids.issubset(reviewed_ids)
         )
 
     def get_primary_action(self, obj):
@@ -872,16 +876,15 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             }
 
         if not self.get_my_review_completed(obj):
+            if self.get_counterpart_review_completed(obj):
+                return {
+                    "code": "FINALIZE",
+                    "label": "최종 합의 완료",
+                    "enabled": True,
+                }
             return {
                 "code": "REVIEW",
                 "label": "검토 완료",
-                "enabled": True,
-            }
-
-        if self.get_all_reviews_completed(obj):
-            return {
-                "code": "FINALIZE",
-                "label": "최종 합의 완료",
                 "enabled": True,
             }
 
@@ -908,15 +911,8 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         )
 
     def get_requires_re_review(self, obj):
-        current_review_count = obj.reviews.filter(
-            reviewed_version=obj.version,
-        ).count()
-
-        return (
-            obj.status == CaseAgreement.Status.IN_REVIEW
-            and current_review_count < 2
-            and obj.version > 1
-        )
+        # 완료 확인은 이후 편집에도 유지되므로 재검토 단계가 없습니다.
+        return False
 
 
 class CaseAgreementRevisionSerializer(
