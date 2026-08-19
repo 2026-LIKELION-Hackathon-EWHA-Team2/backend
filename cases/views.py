@@ -536,22 +536,6 @@ class CaseCollaborationRequestListView(
         queryset = get_received_collaboration_requests_for_user(
             self.request.user,
         )
-        today = timezone.localdate()
-
-        queryset = queryset.filter(
-            Q(
-                status=CaseCollaborationRequest.Status.REQUESTED,
-                requested_at__date=today,
-            )
-            | Q(
-                status=CaseCollaborationRequest.Status.ACCEPTED,
-                accepted_at__date=today,
-            )
-            | Q(
-                status=CaseCollaborationRequest.Status.COMPLETED,
-                completed_at__date=today,
-            )
-        )
 
         status_value = (
             self.request.query_params.get("status")
