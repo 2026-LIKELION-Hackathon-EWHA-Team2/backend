@@ -71,8 +71,10 @@ else:
 
 # Application definition
 
+# Do not register cloudinary_storage here. Its collectstatic override uses the
+# removed STATICFILES_STORAGE setting and is incompatible with Django 5.2.
+# The media backend is loaded directly through STORAGES below.
 INSTALLED_APPS = [
-    'cloudinary_storage',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
