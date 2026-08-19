@@ -612,9 +612,13 @@ class CaseChatRoomListSerializer(serializers.ModelSerializer):
     @staticmethod
     def get_agreement(obj):
         try:
-            return obj.agreement
+            agreement = obj.agreement
         except CaseAgreement.DoesNotExist:
             return None
+
+        if agreement.status != CaseAgreement.Status.FINAL:
+            return None
+        return agreement
 
     def get_agreement_id(self, obj):
         agreement = self.get_agreement(obj)

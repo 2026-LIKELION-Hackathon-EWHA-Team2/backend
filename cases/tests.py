@@ -850,7 +850,7 @@ class CaseChatRoomListAndReadTests(APITestCase):
         self.assertEqual(room["chat_status_label"], "검토중")
         self.assertFalse(room["can_view_agreement"])
 
-    def test_chat_list_enables_agreement_button_after_draft_exists(self):
+    def test_chat_list_hides_agreement_until_it_is_final(self):
         agreement = CaseAgreement.objects.create(
             chat_room=self.chat_room,
             judgment_draft="AI 합의안 초안",
@@ -862,13 +862,24 @@ class CaseChatRoomListAndReadTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         room = response.data[0]
-        self.assertEqual(room["agreement_id"], agreement.id)
-        self.assertEqual(
-            room["agreement_status"],
-            CaseAgreement.Status.AI_DRAFT,
-        )
+        self.assertIsNone(room["agreement_id"])
+        self.assertIsNone(room["agreement_status"])
+        self.assertIsNone(room["agreement_finalized_at"])
         self.assertEqual(room["chat_status"], "IN_REVIEW")
-        self.assertTrue(room["can_view_agreement"])
+        self.assertFalse(room["can_view_agreement"])
+
+        agreement.status = CaseAgreement.Status.IN_REVIEW
+        agreement.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(reverse("case-chat-room-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        room = response.data[0]
+        self.assertIsNone(room["agreement_id"])
+        self.assertIsNone(room["agreement_status"])
+        self.assertIsNone(room["agreement_finalized_at"])
+        self.assertEqual(room["chat_status"], "IN_REVIEW")
+        self.assertFalse(room["can_view_agreement"])
 
     def test_chat_list_completed_status_and_filter_follow_final_agreement(self):
         finalized_at = timezone.now()
