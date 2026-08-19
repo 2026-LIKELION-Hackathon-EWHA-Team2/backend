@@ -874,8 +874,8 @@ class CaseAgreementDetailView(APIView):
                 raise ValidationError(
                     {
                         "detail": (
-                            "최종 합의 내용은 수정 요청 후 "
-                            "변경할 수 있습니다."
+                            "최종 합의가 완료된 후에는 "
+                            "수정할 수 없습니다."
                         )
                     }
                 )
@@ -938,8 +938,12 @@ class CaseAgreementDetailView(APIView):
                 finalized_at=None,
             )
 
-            # 수정되면 양측의 기존 검토를 모두 무효화합니다.
-            agreement.reviews.all().delete()
+            # 먼저 완료한 병원의 확인은 이후 편집에도 유효합니다.
+            # 따라서 두 번째 병원이 최종 완료하면 재검토 없이
+            # 곧바로 최종 합의가 됩니다.
+            agreement.reviews.update(
+                reviewed_version=agreement.version,
+            )
 
         response_data = CaseAgreementSerializer(
             agreement,
@@ -1090,6 +1094,54 @@ class CaseChatRoomReadView(APIView):
             status=status.HTTP_200_OK,
         )
 
+def complete_case_agreement(agreement, chat_room):
+    completed_at = timezone.now()
+    agreement.status = CaseAgreement.Status.FINAL
+    agreement.finalized_at = completed_at
+    agreement.revision_requested_by = None
+    agreement.revision_requested_at = None
+    agreement.save(
+        update_fields=(
+            "status",
+            "finalized_at",
+            "revision_requested_by",
+            "revision_requested_at",
+            "updated_at",
+        )
+    )
+
+    collaboration_request = (
+        CaseCollaborationRequest.objects
+        .filter(medical_case=chat_room.medical_case)
+        .first()
+    )
+    if collaboration_request is not None:
+        collaboration_request.status = (
+            CaseCollaborationRequest.Status.COMPLETED
+        )
+        collaboration_request.completed_at = completed_at
+        collaboration_request.save(
+            update_fields=(
+                "status",
+                "completed_at",
+                "updated_at",
+            )
+        )
+
+    transfer = (
+        chat_room.medical_case.case_transfers
+        .select_related("symptom_case")
+        .filter(status=CaseTransfer.Status.TRANSFERRED)
+        .first()
+    )
+    if transfer is not None:
+        symptom_case = transfer.symptom_case
+        symptom_case.status = symptom_case.Status.COMPLETED
+        symptom_case.save(
+            update_fields=["status", "updated_at"]
+        )
+
+
 class CaseAgreementReviewView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1120,47 +1172,6 @@ class CaseAgreementReviewView(APIView):
                 },
             )
 
-            agreement.status = CaseAgreement.Status.IN_REVIEW
-
-            agreement.save(
-                update_fields=(
-                    "status",
-                    "finalized_at",
-                    "revision_requested_by",
-                    "revision_requested_at",
-                    "updated_at",
-                )
-            )
-
-        return Response(
-            CaseAgreementSerializer(
-                agreement,
-                context={"request": request},
-            ).data
-        )
-
-
-class CaseAgreementFinalizeView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, case_id, room_id):
-        chat_room = get_agreement_chat_room(
-            request,
-            case_id,
-            room_id,
-        )
-
-        with transaction.atomic():
-            agreement = get_object_or_404(
-                CaseAgreement.objects.select_for_update(),
-                chat_room=chat_room,
-            )
-
-            if agreement.status == CaseAgreement.Status.FINAL:
-                raise ValidationError(
-                    "이미 최종 합의가 완료되었습니다."
-                )
-
             participant_ids = {
                 chat_room.medical_case.origin_hospital_id,
                 chat_room.partner_hospital_id,
@@ -1171,138 +1182,15 @@ class CaseAgreementFinalizeView(APIView):
                 ).values_list("hospital_id", flat=True)
             )
 
-            if reviewed_ids != participant_ids:
-                raise ValidationError(
-                    {
-                        "detail": (
-                            "양측 병원의 검토가 완료된 후 "
-                            "최종 합의할 수 있습니다."
-                        )
-                    }
-                )
-
-            completed_at = timezone.now()
-            agreement.status = CaseAgreement.Status.FINAL
-            agreement.finalized_at = completed_at
-            agreement.revision_requested_by = None
-            agreement.revision_requested_at = None
-            agreement.save(
-                update_fields=(
-                    "status",
-                    "finalized_at",
-                    "revision_requested_by",
-                    "revision_requested_at",
-                    "updated_at",
-                )
-            )
-
-            collaboration_request = (
-                CaseCollaborationRequest.objects
-                .filter(medical_case=chat_room.medical_case)
-                .first()
-            )
-            if collaboration_request is not None:
-                collaboration_request.status = (
-                    CaseCollaborationRequest.Status.COMPLETED
-                )
-                collaboration_request.completed_at = completed_at
-                collaboration_request.save(
+            if reviewed_ids == participant_ids:
+                complete_case_agreement(agreement, chat_room)
+            else:
+                agreement.status = CaseAgreement.Status.IN_REVIEW
+                agreement.save(
                     update_fields=(
                         "status",
-                        "completed_at",
                         "updated_at",
                     )
-                )
-
-            transfer = (
-                chat_room.medical_case.case_transfers
-                .select_related("symptom_case")
-                .filter(status=CaseTransfer.Status.TRANSFERRED)
-                .first()
-            )
-            if transfer is not None:
-                symptom_case = transfer.symptom_case
-                symptom_case.status = symptom_case.Status.COMPLETED
-                symptom_case.save(
-                    update_fields=["status", "updated_at"]
-                )
-
-        return Response(
-            CaseAgreementSerializer(
-                agreement,
-                context={"request": request},
-            ).data
-        )
-
-class CaseAgreementRevisionRequestView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, case_id, room_id):
-        chat_room = get_agreement_chat_room(
-            request,
-            case_id,
-            room_id,
-        )
-
-        with transaction.atomic():
-            agreement = get_object_or_404(
-                CaseAgreement.objects.select_for_update(),
-                chat_room=chat_room,
-            )
-
-            if agreement.status != CaseAgreement.Status.FINAL:
-                raise ValidationError(
-                    "최종 합의 상태에서만 수정 요청할 수 있습니다."
-                )
-
-            agreement.reviews.all().delete()
-
-            agreement.status = CaseAgreement.Status.IN_REVIEW
-            agreement.finalized_at = None
-            agreement.revision_requested_by = request.user
-            agreement.revision_requested_at = timezone.now()
-
-            agreement.save(
-                update_fields=(
-                    "status",
-                    "finalized_at",
-                    "revision_requested_by",
-                    "revision_requested_at",
-                    "updated_at",
-                )
-            )
-
-            collaboration_request = (
-                CaseCollaborationRequest.objects
-                .filter(medical_case=chat_room.medical_case)
-                .first()
-            )
-            if collaboration_request is not None:
-                collaboration_request.status = (
-                    CaseCollaborationRequest.Status.ACCEPTED
-                )
-                collaboration_request.completed_at = None
-                collaboration_request.save(
-                    update_fields=(
-                        "status",
-                        "completed_at",
-                        "updated_at",
-                    )
-                )
-
-            transfer = (
-                chat_room.medical_case.case_transfers
-                .select_related("symptom_case")
-                .filter(status=CaseTransfer.Status.TRANSFERRED)
-                .first()
-            )
-            if transfer is not None:
-                symptom_case = transfer.symptom_case
-                symptom_case.status = (
-                    symptom_case.Status.IN_COLLABORATION
-                )
-                symptom_case.save(
-                    update_fields=["status", "updated_at"]
                 )
 
         return Response(
