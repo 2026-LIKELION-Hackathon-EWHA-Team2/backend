@@ -560,7 +560,16 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             [visible_request.id],
         )
 
-    def test_dashboard_still_counts_only_received_requests(self):
+    def test_dashboard_includes_origin_hospital_cases(self):
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.REQUESTED,
+        )
+        accepted = self.create_request(
+            self.sato,
+            CaseCollaborationRequest.Status.ACCEPTED,
+            accepted_at=timezone.now(),
+        )
         self.create_request(
             self.anna,
             CaseCollaborationRequest.Status.COMPLETED,
@@ -574,12 +583,15 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(
             response.data["today_summary"],
             {
-                "new_request_count": 0,
-                "in_review_count": 0,
-                "completed_count": 0,
+                "new_request_count": 1,
+                "in_review_count": 1,
+                "completed_count": 1,
             },
         )
-        self.assertEqual(response.data["ongoing_collaborations"], [])
+        self.assertEqual(
+            [item["id"] for item in response.data["ongoing_collaborations"]],
+            [accepted.id],
+        )
 
     def test_case_lookup_searches_patient_name_and_case_number(self):
         request_item = self.create_request(
