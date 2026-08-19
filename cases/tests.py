@@ -526,6 +526,61 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(len(completed_response.data), 1)
         self.assertEqual(completed_response.data[0]["id"], completed.id)
 
+    def test_case_lookup_includes_origin_hospital_cases(self):
+        visible_request = self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.COMPLETED,
+            completed_at=timezone.now(),
+        )
+        unrelated_case = MedicalCase.objects.create(
+            patient=self.sato,
+            origin_hospital=self.other_hospital,
+            partner_hospital=self.hospital,
+            procedure_name="Filler",
+            procedure_area="Chin",
+            procedure_date=date(2026, 8, 2),
+            clinician_note="Follow up after treatment.",
+            status=MedicalCase.Status.TRANSFERRED,
+        )
+        CaseCollaborationRequest.objects.create(
+            medical_case=unrelated_case,
+            status=CaseCollaborationRequest.Status.COMPLETED,
+            completed_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.get(
+            reverse("collaboration-request-list"),
+            {"status": "COMPLETED"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["id"] for item in response.data],
+            [visible_request.id],
+        )
+
+    def test_dashboard_still_counts_only_received_requests(self):
+        self.create_request(
+            self.anna,
+            CaseCollaborationRequest.Status.COMPLETED,
+            completed_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.origin)
+
+        response = self.client.get(reverse("hospital-dashboard"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["today_summary"],
+            {
+                "new_request_count": 0,
+                "in_review_count": 0,
+                "completed_count": 0,
+            },
+        )
+        self.assertEqual(response.data["ongoing_collaborations"], [])
+
     def test_case_lookup_searches_patient_name_and_case_number(self):
         request_item = self.create_request(
             self.anna,

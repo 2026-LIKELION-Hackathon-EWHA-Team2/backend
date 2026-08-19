@@ -533,7 +533,7 @@ class CaseCollaborationRequestListView(
     }
 
     def get_queryset(self):
-        queryset = get_received_collaboration_requests_for_user(
+        queryset = get_collaboration_requests_for_participating_hospital(
             self.request.user,
         )
 
