@@ -955,7 +955,21 @@ class CaseChatRoomListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        return (
+        chat_status = self.request.query_params.get("status")
+        valid_statuses = {
+            CaseChatRoomListSerializer.ChatStatus.IN_REVIEW,
+            CaseChatRoomListSerializer.ChatStatus.COMPLETED,
+        }
+        if chat_status and chat_status not in valid_statuses:
+            raise ValidationError(
+                {
+                    "status": (
+                        "status는 IN_REVIEW 또는 COMPLETED여야 합니다."
+                    )
+                }
+            )
+
+        queryset = (
             CaseChatRoom.objects
             .filter(
                 Q(medical_case__origin_hospital=user)
@@ -969,6 +983,7 @@ class CaseChatRoomListView(generics.ListAPIView):
                 "medical_case__partner_hospital",
                 "medical_case__collaboration_request",
                 "partner_hospital",
+                "agreement",
             )
             .prefetch_related(
                 Prefetch(
@@ -993,6 +1008,16 @@ class CaseChatRoomListView(generics.ListAPIView):
             .order_by("-latest_message_at", "-created_at")
             .distinct()
         )
+
+        if chat_status == CaseChatRoomListSerializer.ChatStatus.COMPLETED:
+            return queryset.filter(
+                agreement__status=CaseAgreement.Status.FINAL,
+            )
+        if chat_status == CaseChatRoomListSerializer.ChatStatus.IN_REVIEW:
+            return queryset.exclude(
+                agreement__status=CaseAgreement.Status.FINAL,
+            )
+        return queryset
 
 
 class CaseChatRoomReadView(APIView):
@@ -1094,58 +1119,7 @@ class CaseAgreementReviewView(APIView):
                 },
             )
 
-            participant_ids = {
-                chat_room.medical_case.origin_hospital_id,
-                chat_room.partner_hospital_id,
-            }
-
-            reviewed_ids = set(
-                agreement.reviews.filter(
-                    reviewed_version=agreement.version,
-                ).values_list("hospital_id", flat=True)
-            )
-
-            if reviewed_ids == participant_ids:
-                completed_at = timezone.now()
-                agreement.status = CaseAgreement.Status.FINAL
-                agreement.finalized_at = completed_at
-                agreement.revision_requested_by = None
-                agreement.revision_requested_at = None
-
-                collaboration_request = (
-                    CaseCollaborationRequest.objects
-                    .filter(medical_case=chat_room.medical_case)
-                    .first()
-                )
-                if collaboration_request is not None:
-                    collaboration_request.status = (
-                        CaseCollaborationRequest.Status.COMPLETED
-                    )
-                    collaboration_request.completed_at = completed_at
-                    collaboration_request.save(
-                        update_fields=(
-                            "status",
-                            "completed_at",
-                            "updated_at",
-                        )
-                    )
-
-                transfer = (
-                    chat_room.medical_case.case_transfers
-                    .select_related("symptom_case")
-                    .filter(status=CaseTransfer.Status.TRANSFERRED)
-                    .first()
-                )
-                if transfer is not None:
-                    symptom_case = transfer.symptom_case
-                    symptom_case.status = (
-                        symptom_case.Status.COMPLETED
-                    )
-                    symptom_case.save(
-                        update_fields=["status", "updated_at"]
-                    )
-            else:
-                agreement.status = CaseAgreement.Status.IN_REVIEW
+            agreement.status = CaseAgreement.Status.IN_REVIEW
 
             agreement.save(
                 update_fields=(
@@ -1156,6 +1130,101 @@ class CaseAgreementReviewView(APIView):
                     "updated_at",
                 )
             )
+
+        return Response(
+            CaseAgreementSerializer(
+                agreement,
+                context={"request": request},
+            ).data
+        )
+
+
+class CaseAgreementFinalizeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, case_id, room_id):
+        chat_room = get_agreement_chat_room(
+            request,
+            case_id,
+            room_id,
+        )
+
+        with transaction.atomic():
+            agreement = get_object_or_404(
+                CaseAgreement.objects.select_for_update(),
+                chat_room=chat_room,
+            )
+
+            if agreement.status == CaseAgreement.Status.FINAL:
+                raise ValidationError(
+                    "이미 최종 합의가 완료되었습니다."
+                )
+
+            participant_ids = {
+                chat_room.medical_case.origin_hospital_id,
+                chat_room.partner_hospital_id,
+            }
+            reviewed_ids = set(
+                agreement.reviews.filter(
+                    reviewed_version=agreement.version,
+                ).values_list("hospital_id", flat=True)
+            )
+
+            if reviewed_ids != participant_ids:
+                raise ValidationError(
+                    {
+                        "detail": (
+                            "양측 병원의 검토가 완료된 후 "
+                            "최종 합의할 수 있습니다."
+                        )
+                    }
+                )
+
+            completed_at = timezone.now()
+            agreement.status = CaseAgreement.Status.FINAL
+            agreement.finalized_at = completed_at
+            agreement.revision_requested_by = None
+            agreement.revision_requested_at = None
+            agreement.save(
+                update_fields=(
+                    "status",
+                    "finalized_at",
+                    "revision_requested_by",
+                    "revision_requested_at",
+                    "updated_at",
+                )
+            )
+
+            collaboration_request = (
+                CaseCollaborationRequest.objects
+                .filter(medical_case=chat_room.medical_case)
+                .first()
+            )
+            if collaboration_request is not None:
+                collaboration_request.status = (
+                    CaseCollaborationRequest.Status.COMPLETED
+                )
+                collaboration_request.completed_at = completed_at
+                collaboration_request.save(
+                    update_fields=(
+                        "status",
+                        "completed_at",
+                        "updated_at",
+                    )
+                )
+
+            transfer = (
+                chat_room.medical_case.case_transfers
+                .select_related("symptom_case")
+                .filter(status=CaseTransfer.Status.TRANSFERRED)
+                .first()
+            )
+            if transfer is not None:
+                symptom_case = transfer.symptom_case
+                symptom_case.status = symptom_case.Status.COMPLETED
+                symptom_case.save(
+                    update_fields=["status", "updated_at"]
+                )
 
         return Response(
             CaseAgreementSerializer(

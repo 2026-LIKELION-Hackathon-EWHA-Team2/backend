@@ -504,6 +504,10 @@ class CaseChatMessageSerializer(serializers.ModelSerializer):
         return translated_content or obj.content
 
 class CaseChatRoomListSerializer(serializers.ModelSerializer):
+    class ChatStatus:
+        IN_REVIEW = "IN_REVIEW"
+        COMPLETED = "COMPLETED"
+
     room_id = serializers.IntegerField(source="id", read_only=True)
     medical_case_id = serializers.IntegerField(read_only=True)
     case_number = serializers.SerializerMethodField()
@@ -536,6 +540,12 @@ class CaseChatRoomListSerializer(serializers.ModelSerializer):
     counterpart_hospital_name = serializers.SerializerMethodField()
     collaboration_request_id = serializers.SerializerMethodField()
     collaboration_request_status = serializers.SerializerMethodField()
+    agreement_id = serializers.SerializerMethodField()
+    agreement_status = serializers.SerializerMethodField()
+    agreement_finalized_at = serializers.SerializerMethodField()
+    chat_status = serializers.SerializerMethodField()
+    chat_status_label = serializers.SerializerMethodField()
+    can_view_agreement = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     last_message_at = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
@@ -557,6 +567,12 @@ class CaseChatRoomListSerializer(serializers.ModelSerializer):
             "counterpart_hospital_name",
             "collaboration_request_id",
             "collaboration_request_status",
+            "agreement_id",
+            "agreement_status",
+            "agreement_finalized_at",
+            "chat_status",
+            "chat_status_label",
+            "can_view_agreement",
             "last_message",
             "last_message_at",
             "unread_count",
@@ -592,6 +608,43 @@ class CaseChatRoomListSerializer(serializers.ModelSerializer):
     def get_collaboration_request_status(self, obj):
         collaboration_request = self.get_collaboration_request(obj)
         return collaboration_request.status if collaboration_request else None
+
+    @staticmethod
+    def get_agreement(obj):
+        try:
+            return obj.agreement
+        except CaseAgreement.DoesNotExist:
+            return None
+
+    def get_agreement_id(self, obj):
+        agreement = self.get_agreement(obj)
+        return agreement.id if agreement else None
+
+    def get_agreement_status(self, obj):
+        agreement = self.get_agreement(obj)
+        return agreement.status if agreement else None
+
+    def get_agreement_finalized_at(self, obj):
+        agreement = self.get_agreement(obj)
+        if agreement is None or agreement.finalized_at is None:
+            return None
+        return serializers.DateTimeField().to_representation(
+            agreement.finalized_at
+        )
+
+    def get_chat_status(self, obj):
+        agreement = self.get_agreement(obj)
+        if agreement and agreement.status == CaseAgreement.Status.FINAL:
+            return self.ChatStatus.COMPLETED
+        return self.ChatStatus.IN_REVIEW
+
+    def get_chat_status_label(self, obj):
+        if self.get_chat_status(obj) == self.ChatStatus.COMPLETED:
+            return "완료"
+        return "검토중"
+
+    def get_can_view_agreement(self, obj):
+        return self.get_agreement(obj) is not None
 
     def get_messages(self, obj):
         return getattr(obj, "chat_list_messages", [])
@@ -647,6 +700,11 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
     can_edit = serializers.SerializerMethodField()
     requires_re_review = serializers.SerializerMethodField()
     latest_edit = serializers.SerializerMethodField()
+    my_review_completed = serializers.SerializerMethodField()
+    counterpart_review_completed = serializers.SerializerMethodField()
+    all_reviews_completed = serializers.SerializerMethodField()
+    can_finalize = serializers.SerializerMethodField()
+    primary_action = serializers.SerializerMethodField()
 
     revision_requested_by_name = serializers.CharField(
         source="revision_requested_by.name",
@@ -671,6 +729,11 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "reviews",
             "can_edit",
             "requires_re_review",
+            "my_review_completed",
+            "counterpart_review_completed",
+            "all_reviews_completed",
+            "can_finalize",
+            "primary_action",
             "created_at",
             "updated_at",
             "revision_requested_by_name",
@@ -688,6 +751,11 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "reviews",
             "can_edit",
             "requires_re_review",
+            "my_review_completed",
+            "counterpart_review_completed",
+            "all_reviews_completed",
+            "can_finalize",
+            "primary_action",
             "created_at",
             "updated_at",
             "revision_requested_by_name",
@@ -744,6 +812,84 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             }
             for review in obj.reviews.all()
         ]
+
+    @staticmethod
+    def get_current_reviewed_hospital_ids(obj):
+        cache_name = "_current_reviewed_hospital_ids"
+        if hasattr(obj, cache_name):
+            return getattr(obj, cache_name)
+
+        reviewed_ids = {
+            review.hospital_id
+            for review in obj.reviews.all()
+            if review.reviewed_version == obj.version
+        }
+        setattr(obj, cache_name, reviewed_ids)
+        return reviewed_ids
+
+    def get_participant_ids(self, obj):
+        return {
+            obj.chat_room.medical_case.origin_hospital_id,
+            obj.chat_room.partner_hospital_id,
+        }
+
+    def get_my_review_completed(self, obj):
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return request.user.id in self.get_current_reviewed_hospital_ids(obj)
+
+    def get_counterpart_review_completed(self, obj):
+        request = self.context.get("request")
+        if request is None:
+            return False
+
+        counterpart_ids = self.get_participant_ids(obj) - {request.user.id}
+        return counterpart_ids.issubset(
+            self.get_current_reviewed_hospital_ids(obj)
+        )
+
+    def get_all_reviews_completed(self, obj):
+        return self.get_current_reviewed_hospital_ids(
+            obj
+        ) == self.get_participant_ids(obj)
+
+    def get_can_finalize(self, obj):
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.id in self.get_participant_ids(obj)
+            and obj.status != CaseAgreement.Status.FINAL
+            and self.get_all_reviews_completed(obj)
+        )
+
+    def get_primary_action(self, obj):
+        if obj.status == CaseAgreement.Status.FINAL:
+            return {
+                "code": "VIEW_FINAL",
+                "label": "최종 합의안 보기",
+                "enabled": True,
+            }
+
+        if not self.get_my_review_completed(obj):
+            return {
+                "code": "REVIEW",
+                "label": "검토 완료",
+                "enabled": True,
+            }
+
+        if self.get_all_reviews_completed(obj):
+            return {
+                "code": "FINALIZE",
+                "label": "최종 합의 완료",
+                "enabled": True,
+            }
+
+        return {
+            "code": "WAITING_FOR_COUNTERPART",
+            "label": "상대 검토 대기",
+            "enabled": False,
+        }
 
     def get_can_edit(self, obj):
         request = self.context.get("request")
