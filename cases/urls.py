@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     CaseAgreementGenerateView,
     CaseAgreementDetailView,
+    CaseAgreementFinalizeView,
     CaseAgreementReviewView,
     CaseAgreementRevisionListView,
     CaseAgreementRevisionRequestView,
@@ -96,6 +97,11 @@ urlpatterns = [
         "<int:case_id>/chat/rooms/<int:room_id>/agreement/review/",
         CaseAgreementReviewView.as_view(),
         name="case-agreement-review",
+    ),
+    path(
+        "<int:case_id>/chat/rooms/<int:room_id>/agreement/finalize/",
+        CaseAgreementFinalizeView.as_view(),
+        name="case-agreement-finalize",
     ),
     path(
         "<int:case_id>/chat/rooms/<int:room_id>/agreement/revisions/",
