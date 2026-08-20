@@ -991,6 +991,17 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id",)
 
+        extra_kwargs = {
+            "patient_gender": {
+                "required": False,
+                "allow_null": True,
+            },
+            "patient_birth_date": {
+                "required": False,
+                "allow_null": True,
+            },
+        }
+
     def validate(self, attrs):
         request = self.context["request"]
         symptom_case = attrs["symptom_case"]
