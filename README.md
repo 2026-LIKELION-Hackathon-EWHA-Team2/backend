@@ -54,38 +54,43 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 
 <table>
   <tr>
-    <th align="center">Frontend</th>
+    <th align="center">Plan / Design</th>
     <th align="center">Backend</th>
-    <th align="center">Infrastructure & AI</th>
-    <th align="center">Design & Collaboration</th>
+    <th align="center">Frontend</th>
+    <th align="center">AI</th>
   </tr>
   <tr>
     <td valign="top" align="center">
-      <!-- 프론트엔드 기술 스택 배지 삽입 -->
-      &nbsp;
+      <img src="https://img.shields.io/badge/Figma-F24E1E?style=for-the-badge&logo=figma&logoColor=white" />
     </td>
-    <td valign="top">
+    <td valign="top" align="center">
       <img src="https://img.shields.io/badge/Python_3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" /><br />
       <img src="https://img.shields.io/badge/Django_5.2-092E20?style=for-the-badge&logo=django&logoColor=white" /><br />
       <img src="https://img.shields.io/badge/Django_REST_Framework-A30000?style=for-the-badge&logo=django&logoColor=white" /><br />
       <img src="https://img.shields.io/badge/Simple_JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" />
-    </td>
-    <td valign="top">
-      <img src="https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" /><br />
       <img src="https://img.shields.io/badge/Cloudinary-3448C5?style=for-the-badge&logo=cloudinary&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/Render-000000?style=for-the-badge&logo=render&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/WhiteNoise-6B7280?style=for-the-badge" />
+      <img src="https://img.shields.io/badge/WhiteNoise-6B7280?style=for-the-badge" /><br />
+      <img src="https://img.shields.io/badge/Render-000000?style=for-the-badge&logo=render&logoColor=white" />
     </td>
-    <td valign="top">
-      <img src="https://img.shields.io/badge/Figma-F24E1E?style=for-the-badge&logo=figma&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/Notion-000000?style=for-the-badge&logo=notion&logoColor=white" /><br />
-      <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" />
+    <td valign="top" align="center">
+      <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black" /><br />
+      <img src="https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" /><br />
+      <img src="https://img.shields.io/badge/Zustand-433E38?style=for-the-badge&logo=react&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/TanStack-FF4154?style=for-the-badge&logo=reactquery&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/Axios-5A29E4?style=for-the-badge&logo=axios&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" /><br />
+      <img src="https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white" />
+    </td>
+    <td valign="top" align="center">
+      <img src="https://img.shields.io/badge/OpenAI_API-412991?style=for-the-badge&logo=openai&logoColor=white" />
     </td>
   </tr>
 </table>
-
 ---
 
 ### 👥 팀원 소개
