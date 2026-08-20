@@ -1322,6 +1322,34 @@ class CaseAgreementGenerateView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        if "ko" in generated_data and "ja" in generated_data:
+            localized_content = {
+                language: {
+                    "judgment_draft": generated_data[language][
+                        "judgment_draft"
+                    ],
+                    "evidence_items": generated_data[language][
+                        "evidence_items"
+                    ],
+                }
+                for language in ("ko", "ja")
+            }
+            generated_data = dict(localized_content["ko"])
+        else:
+            # 기존 호출자와 테스트 payload는 한국어 원본으로 호환합니다.
+            localized_content = {
+                "ko": {
+                    "judgment_draft": generated_data.get(
+                        "judgment_draft",
+                        "",
+                    ),
+                    "evidence_items": generated_data.get(
+                        "evidence_items",
+                        [],
+                    ),
+                }
+            }
+
         # 추가 소견은 AI가 아니라 참여 의료진이 직접 작성합니다.
         generated_data["additional_opinion"] = ""
 
@@ -1366,6 +1394,7 @@ class CaseAgreementGenerateView(APIView):
                 chat_room=locked_room,
                 status=CaseAgreement.Status.AI_DRAFT,
                 version=1,
+                localized_content=localized_content,
             )
 
         return Response(

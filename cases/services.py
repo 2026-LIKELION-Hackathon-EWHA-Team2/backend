@@ -116,20 +116,41 @@ def generate_case_agreement(case_data, messages):
             "both medical teams. Return only valid JSON."
         ),
         input=(
-            "Create a Korean consultation agreement draft.\n\n"
+            "Create a professional inter-hospital consultation "
+            "agreement in both Korean and Japanese. Reflect every "
+            "clinically meaningful statement from both hospitals, "
+            "regardless of the source language. The Korean and "
+            "Japanese versions must have the same medical meaning, "
+            "evidence IDs, and evidence order. Translate all human-"
+            "readable content so that no source-language fragments "
+            "remain, except proper nouns and standardized product "
+            "names. Use formal medical language suitable for an "
+            "inter-hospital agreement.\n\n"
             "Case information:\n"
             f"{json.dumps(case_data, ensure_ascii=False)}\n\n"
             f"Conversation:\n{conversation}\n\n"
             "Return this exact JSON structure:\n"
             "{\n"
-            '  "judgment_draft": "string",\n'
-            '  "evidence_items": [\n'
-            "    {\n"
-            '      "id": "evidence-1",\n'
-            '      "content": "string",\n'
-            '      "order": 1\n'
-            "    }\n"
-            "  ]\n"
+            '  "ko": {\n'
+            '    "judgment_draft": "string",\n'
+            '    "evidence_items": [\n'
+            "      {\n"
+            '        "id": "evidence-1",\n'
+            '        "content": "string",\n'
+            '        "order": 1\n'
+            "      }\n"
+            "    ]\n"
+            "  },\n"
+            '  "ja": {\n'
+            '    "judgment_draft": "string",\n'
+            '    "evidence_items": [\n'
+            "      {\n"
+            '        "id": "evidence-1",\n'
+            '        "content": "string",\n'
+            '        "order": 1\n'
+            "      }\n"
+            "    ]\n"
+            "  }\n"
             "}\n"
             "Evidence items may be an empty list when there is no "
             "explicit supporting evidence. "
@@ -157,7 +178,14 @@ def generate_case_agreement(case_data, messages):
         "evidence_items",
     }
 
-    if not required_fields.issubset(agreement_data):
+    if (
+        not {"ko", "ja"}.issubset(agreement_data)
+        or not all(
+            isinstance(agreement_data.get(language), dict)
+            and required_fields.issubset(agreement_data[language])
+            for language in ("ko", "ja")
+        )
+    ):
         raise ValueError(
             "AI 합의안 응답에 필수 항목이 없습니다."
         )

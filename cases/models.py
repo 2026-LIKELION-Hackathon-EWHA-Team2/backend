@@ -293,6 +293,7 @@ class CaseAgreement(models.Model):
     judgment_draft = models.TextField()
     evidence_items = models.JSONField(default=list)
     additional_opinion = models.TextField(blank=True, default="")
+    localized_content = models.JSONField(default=dict, blank=True)
 
     status = models.CharField(
         max_length=20,
