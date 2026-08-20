@@ -3,9 +3,8 @@
 
 > 국경을 넘어 이어지는 의료 사후관리와 병원 간 협진 플랫폼
 
-<!-- 발표 장표 첫 장 이미지 삽입
-<img width="1920" alt="Aftor 프로젝트 표지" src="" />
--->
+<img width="1757" height="1173" alt="image" src="https://github.com/user-attachments/assets/a2a4c976-4fd5-4ef8-a1d8-3aef824997cd" />
+
 
 ---
 
