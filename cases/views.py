@@ -1616,7 +1616,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         }
 
         partner_language = (
-            partner_hospital.hospital_profile.language_code
+            partner_hospital.preferred_language
         )
 
         origin_language = (

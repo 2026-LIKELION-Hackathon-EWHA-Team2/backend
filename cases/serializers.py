@@ -565,6 +565,46 @@ class CaseCollaborationRequestDetailSerializer(
                 "display_language": display_language,
             },
         ).data["transmitted_data"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        structured = self.get_display_structured_data(instance)
+        procedure = structured.get("procedure") or {}
+
+        medical_case = data.get("medical_case") or {}
+        medical_case["procedure_name"] = (
+            procedure.get("name")
+            or medical_case.get("procedure_name")
+        )
+        medical_case["procedure_area"] = (
+            procedure.get("area")
+            or medical_case.get("procedure_area")
+        )
+        medical_case["clinician_note"] = (
+            structured.get("clinician_note")
+            or medical_case.get("clinician_note")
+        )
+        medical_case["ai_summary"] = (
+            structured.get("ai_summary")
+            or medical_case.get("ai_summary")
+        )
+
+        translated_ingredients = structured.get("ingredients") or []
+        existing_ingredients = medical_case.get("ingredients") or []
+        medical_case["ingredients"] = [
+            {
+                "id": (
+                    existing_ingredients[index].get("id")
+                    if index < len(existing_ingredients)
+                    else None
+                ),
+                "ingredient_name": ingredient,
+            }
+            for index, ingredient in enumerate(translated_ingredients)
+        ]
+
+        data["medical_case"] = medical_case
+        return data
     
 
 
@@ -1316,7 +1356,7 @@ class CaseTransferCreateSerializer(serializers.ModelSerializer):
             patient=self.context["request"].user,
             partner_hospital=partner_hospital,
             target_language=(
-                recommendation.hospital.language_code
+                partner_hospital.preferred_language
             ),
         )
 
