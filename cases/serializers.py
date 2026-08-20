@@ -513,7 +513,7 @@ class CaseCollaborationRequestDetailSerializer(
 
         request = self.context.get("request")
         display_language = (
-            request.user.hospital_profile.language_code
+            request.user.preferred_language
             if request is not None
             else transfer.target_language
         )
@@ -553,7 +553,7 @@ class CaseCollaborationRequestDetailSerializer(
 
         request = self.context.get("request")
         display_language = (
-            request.user.hospital_profile.language_code
+            request.user.preferred_language
             if request is not None
             else transfer.target_language
         )

@@ -1620,7 +1620,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         )
 
         origin_language = (
-            symptom_case.diagnosed_hospital.language_code
+            symptom_case.diagnosed_hospital.user.preferred_language
         )
 
         try:
