@@ -225,7 +225,7 @@ python manage.py test
 | 구분 | URL |
 | --- | --- |
 | Frontend |  |
-| Backend API |  |
+| Backend API | https://likelion-team2-backend.onrender.com/ |
 
 ---
 
