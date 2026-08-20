@@ -336,7 +336,7 @@ python manage.py test
 | 구분 | URL |
 | --- | --- |
 | Frontend | https://borderlesslion-front.vercel.app |
-| Backend API | https://likelion-team2-backend.onrender.com/acoounts/login/ |
+| Backend API | https://likelion-team2-backend.onrender.com/accounts/login/ |
 
 ---
 
