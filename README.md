@@ -95,20 +95,19 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 
 ### 👥 팀원 소개
 
-<!-- 이름, GitHub 주소, 역할과 담당 기능을 입력하세요. PPT 인물 사진 업로드 후 src에 URL을 넣어주세요. -->
+<!-- 이름, GitHub 주소, 역할과 담당 기능을 입력하세요. -->
 
 <table>
+  <!-- 1~3번 팀원 -->
   <tr align="center">
     <th>주영</th>
     <th>소담</th>
-  </tr>
-  <tr align="center">
-    <td><!-- <img width="120" src="" alt="주영 사진" /> --></td>
-    <td><!-- <img width="120" src="" alt="소담 사진" /> --></td>
+    <th>이름</th>
   </tr>
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
+    <td><b>역할</b></td>
   </tr>
   <tr align="center">
     <td valign="top">
@@ -136,6 +135,44 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       프로토타입 제작<br />
       디자인 시스템 구축<br />
       발표 자료 제작
+    </td>
+    <td valign="top">
+      담당 내용<br />
+      담당 내용<br />
+      담당 내용
+    </td>
+  </tr>
+</table>
+
+<br />
+
+<table>
+  <!-- 4~6번 팀원 -->
+  <tr align="center">
+    <th>이름</th>
+    <th>이름</th>
+    <th>이름</th>
+  </tr>
+  <tr align="center">
+    <td><b>역할</b></td>
+    <td><b>역할</b></td>
+    <td><b>역할</b></td>
+  </tr>
+  <tr align="center">
+    <td valign="top">
+      담당 내용<br />
+      담당 내용<br />
+      담당 내용
+    </td>
+    <td valign="top">
+      담당 내용<br />
+      담당 내용<br />
+      담당 내용
+    </td>
+    <td valign="top">
+      담당 내용<br />
+      담당 내용<br />
+      담당 내용
     </td>
   </tr>
 </table>
