@@ -59,11 +59,52 @@ class CaseAgreementServiceTests(SimpleTestCase):
         result = generate_case_agreement({}, [])
 
         self.assertEqual(set(result), {"ko", "en", "ja", "zh"})
+        self.assertEqual(
+            result["ko"]["judgment_draft"],
+            "현재 협진 채팅에서 확인된 의료적 합의 내용이 없습니다.",
+        )
+        self.assertEqual(
+            result["ja"]["judgment_draft"],
+            "現時点では、診療連携チャット上で確認された医学的な"
+            "合意内容はありません。",
+        )
         request_input = (
             openai.return_value.responses.create.call_args.kwargs["input"]
         )
+        request_instructions = (
+            openai.return_value.responses.create.call_args.kwargs[
+                "instructions"
+            ]
+        )
         for language in ("ko", "en", "ja", "zh"):
             self.assertIn(f'"{language}"', request_input)
+        self.assertIn("(no chat messages)", request_input)
+        self.assertIn(
+            "only the conversation can establish whether the hospitals "
+            "reached a bilateral clinical agreement",
+            request_instructions,
+        )
+        self.assertIn(
+            "Greetings, thanks, administrative coordination, and "
+            "acknowledgments without a clear clinical referent do not "
+            "establish an agreement.",
+            request_input,
+        )
+        self.assertIn(
+            "Never include commentary about AI, draft status, review, "
+            "approval",
+            request_instructions,
+        )
+        self.assertIn(
+            "ko: 현재 협진 채팅에서 확인된 의료적 합의 내용이 "
+            "없습니다.",
+            request_input,
+        )
+        self.assertIn(
+            "en: No clinical agreement is documented in the "
+            "consultation chat at this time.",
+            request_input,
+        )
 
     @patch("cases.services.OpenAI")
     def test_generate_agreement_rejects_mismatched_evidence_order(
@@ -1662,19 +1703,32 @@ class CaseAgreementAPITests(APITestCase):
             "경과 관찰이 필요합니다.",
         )
 
-    def test_generate_requires_chat_message(self):
+    @patch("cases.views.generate_case_agreement")
+    def test_generate_allows_case_only_draft_without_chat(self, generate):
+        generate.return_value = {
+            "judgment_draft": (
+                "현재 협진 채팅에서 확인된 의료적 합의 내용이 "
+                "없습니다."
+            ),
+            "evidence_items": [],
+        }
         self.client.force_authenticate(user=self.origin)
 
         response = self.client.post(self.generate_url, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
-            response.data,
-            {
-                "detail": (
-                    "합의안을 생성할 채팅 메시지가 없습니다."
-                )
-            },
+            response.data["judgment_draft"],
+            "현재 협진 채팅에서 확인된 의료적 합의 내용이 없습니다.",
+        )
+        generate.assert_called_once()
+        self.assertEqual(
+            generate.call_args.kwargs["messages"],
+            [],
+        )
+        self.assertEqual(
+            generate.call_args.kwargs["case_data"]["clinician_note"],
+            self.medical_case.clinician_note,
         )
 
     def test_generate_rejects_existing_agreement(self):

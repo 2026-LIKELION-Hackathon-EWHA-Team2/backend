@@ -1410,15 +1410,6 @@ class CaseAgreementGenerateView(APIView):
             .order_by("id")
         )
 
-        if not messages:
-            raise ValidationError(
-                {
-                    "detail": (
-                        "합의안을 생성할 채팅 메시지가 없습니다."
-                    )
-                }
-            )
-
         medical_case = chat_room.medical_case
         case_transfer = (
             medical_case.case_transfers
