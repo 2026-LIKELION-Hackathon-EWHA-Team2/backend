@@ -42,10 +42,10 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 - 🤖 **AI 진단서 분석 및 증상 요약** — 제출 자료를 협진용 구조화 정보로 변환
 - 🏥 **병원 탐색 및 매칭** — 진료 분야와 환자 정보를 기반으로 네트워크 병원 조회·추천·선택
 - 🔐 **동의 기반 의료정보 전송** — 환자 동의 범위에 따라 병원에 케이스 정보 전달
-- 🌐 **국가 간 병원 협진** — 협진 요청, 수락, 대화 흐름 및 읽음 상태 관리
+- 🌐 **국가 간 병원 협진** — 협진 요청 접수·시작, 대화 흐름 및 읽음 상태 관리
 - 💬 **AI 의료 메시지 번역** — 한국·일본 병원의 메시지를 상대 병원의 언어로 제공
 - 📑 **AI 협진 합의안** — 양측 대화를 반영한 한국어·일본어 합의안 초안 생성, 검토 및 확정
-- 📊 **병원 대시보드·관리자 페이지** — 케이스 진행 상태와 주요 데이터 관리
+- 📊 **병원 대시보드·케이스 관리** — 케이스 진행 상태와 주요 데이터 관리
 
 ---
 
@@ -221,7 +221,7 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 ```text
 frontend/
 ├── src/
-│   ├── api/          # 계정(Accounts), 케이스(Cases) 등 비동기 API 요청 모듈
+│   ├── apis/          # 계정(Accounts), 케이스(Cases) 등 비동기 API 요청 모듈
 │   ├── assets/       
 │   ├── components/   # 공통 및 페이지별 UI 컴포넌트
 │   ├── hooks/        # TanStack Query Custom Hooks 및 재사용 커스텀 훅
@@ -247,8 +247,7 @@ backend/
 ├── selfsymptoms/            # 환자 증상과 진단서 접수·분석
 ├── matching/                # 네트워크 병원 탐색 및 AI 병원 추천
 ├── cases/                   # 케이스 전송, 협진, 채팅 및 최종 합의안
-├── diagnosis_documents/     # 로컬 진단서 파일 디렉터리
-├── media/                   # 로컬 개발용 업로드 파일
+├── media/                   # 로컬 실행 시 생성되는 업로드 파일 디렉터리
 ├── manage.py
 ├── requirements.txt
 └── README.md
@@ -297,10 +296,12 @@ SECRET_KEY=
 DEBUG=True
 DATABASE_URL=
 OPENAI_API_KEY=
-OPENAI_TRANSLATION_MODEL=
-OPENAI_AGREEMENT_MODEL=
-OPENAI_MATCHING_MODEL=
-OPENAI_DOCUMENT_MODEL=
+
+# 선택 설정: 미설정 시 기본 모델 사용
+# OPENAI_TRANSLATION_MODEL=gpt-5.6-terra
+# OPENAI_AGREEMENT_MODEL=gpt-5.6-terra
+# OPENAI_MATCHING_MODEL=gpt-5.6-terra
+# OPENAI_DOCUMENT_MODEL=gpt-5.6-terra
 
 # 아래 두 방식 중 하나를 사용합니다.
 CLOUDINARY_URL=
