@@ -1476,6 +1476,8 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        translated_symptoms = document_result.get("symptoms") or {}
+
         structured_data = {
             "patient_info": {
                 "name": serializer.validated_data["patient_name"],
@@ -1485,7 +1487,31 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 ].isoformat(),
             },
             "symptoms": {
-                **document_result["symptoms"],
+                "description": (
+                    translated_symptoms.get("description")
+                    or symptom_data["description"]
+                ),
+                "start_date": (
+                    translated_symptoms.get("start_date")
+                    or symptom_data["start_date"]
+                ),
+                "onset_timing": (
+                    translated_symptoms.get("onset_timing")
+                    or symptom_data["onset_timing"]
+                ),
+                "pain_level": (
+                    translated_symptoms.get("pain_level")
+                    if translated_symptoms.get("pain_level") is not None
+                    else symptom_data["pain_level"]
+                ),
+                "areas": (
+                    translated_symptoms.get("areas")
+                    or symptom_data["areas"]
+                ),
+                "types": (
+                    translated_symptoms.get("types")
+                    or symptom_data["types"]
+                ),
                 "images": list(
                     symptom_case.images.values_list(
                         "image",
