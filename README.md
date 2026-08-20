@@ -97,17 +97,14 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
     <th>주영</th>
     <th>소담</th>
   </tr>
-
   <tr align="center">
     <td><!-- <img width="120" src="" alt="주영 사진" /> --></td>
     <td><!-- <img width="120" src="" alt="소담 사진" /> --></td>
   </tr>
-
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
   </tr>
-
   <tr align="center">
     <td valign="top">
       <b>[ 기획 ]</b><br />
@@ -116,7 +113,6 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       타깃 사용자 설정<br />
       사용자 흐름 설계<br />
       유저 리서치<br /><br />
-
       <b>[ 디자인 ]</b><br />
       로고 디자인<br />
       프로토타입 제작<br />
@@ -124,14 +120,12 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       발표 자료 제작<br />
       영상 제작
     </td>
-
     <td valign="top">
       <b>[ 기획 ]</b><br />
       서비스 기획<br />
       타깃 사용자 설정<br />
       사용자 흐름 설계<br />
       BM 설계<br /><br />
-
       <b>[ 디자인 ]</b><br />
       와이어프레임 제작<br />
       프로토타입 제작<br />
