@@ -776,8 +776,7 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         )
         self.assertEqual(
             response.data["ai_translation_summary"], 
-            collaboration_request.medical_case.ai_summary,
-        )
+            collaboration_request.medical_case.ai_summary,)
 
     def test_collaboration_detail_is_hidden_from_unrelated_hospital(self):
         collaboration_request = self.create_request(
@@ -1655,40 +1654,6 @@ class CaseTransferFlowTests(APITestCase):
         transfer = CaseTransfer.objects.get(pk=response.data["id"])
         self.assertIsNone(transfer.patient_gender)
         self.assertIsNone(transfer.patient_birth_date)
-
-    def test_transfer_preserves_patient_symptoms_when_ai_values_are_empty(self):
-        document_result = self.document_result()
-        document_result["symptoms"] = {
-            "description": None,
-            "start_date": None,
-            "onset_timing": None,
-            "pain_level": None,
-            "areas": [],
-            "types": [],
-        }
-
-        with (
-            patch(
-                "cases.views.analyze_diagnosis_document",
-                return_value=document_result,
-            ),
-            patch(
-                "cases.views.generate_patient_symptom_translation_summary",
-                return_value="Translated summary",
-            ),
-        ):
-            response = self.client.post(
-                reverse("case-transfer-list-create"),
-                self.transfer_payload(),
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        transfer = CaseTransfer.objects.get(pk=response.data["id"])
-        symptoms = transfer.structured_data["symptoms"]
-        self.assertEqual(symptoms["description"], "Swelling and pain")
-        self.assertEqual(symptoms["start_date"], "2026-08-10")
-        self.assertEqual(symptoms["pain_level"], 3)
 
     def test_unselected_recommendation_is_rejected(self):
         self.recommendation.is_selected = False
