@@ -750,6 +750,7 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
             )
         )
 
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["patient_name"], "Anna Kim")
         self.assertEqual(response.data["procedure_name"], "Botox")
@@ -765,6 +766,17 @@ class HospitalDashboardAndReceivedCaseTests(APITestCase):
         self.assertEqual(
             response.data["requested_at"],
             requested_at.isoformat().replace("+00:00", "Z"),
+        )
+
+        self.assertIn("patient_provided_data", response.data)
+        self.assertIn("ai_translation_summary", response.data)
+        self.assertEqual(
+            response.data["patient_provided_data"],
+            {},
+        )
+        self.assertEqual(
+            response.data["ai_translation_summary"], 
+            collaboration_request.medical_case.ai_summary,
         )
 
     def test_collaboration_detail_is_hidden_from_unrelated_hospital(self):
