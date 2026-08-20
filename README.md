@@ -95,27 +95,17 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 
 ### 👥 팀원 소개
 
-### 👥 팀원 소개
-
 <table>
   <tr align="center">
-    <th>주영</th>
-    <th>소담</th>
-    <th>이름</th>
-    <th>이름</th>
-    <th>이름</th>
-    <th>이름</th>
+    <th width="33%">주영</th>
+    <th width="33%">소담</th>
+    <th width="33%">지민</th>
   </tr>
-
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
     <td><b>Frontend</b></td>
-    <td><b>Frontend</b></td>
-    <td><b>Backend</b></td>
-    <td><b>Backend</b></td>
   </tr>
-
   <tr align="center">
     <td valign="top">
       <b>[ 기획 ]</b><br />
@@ -131,41 +121,58 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       발표 자료<br />
       영상
     </td>
-
-```
-<td valign="top">
-  <b>[ 기획 ]</b><br />
-  서비스 기획<br />
-  타겟 사용자 설정<br />
-  사용자 흐름<br />
-  BM 설계<br /><br />
-  <b>[ 디자인 ]</b><br />
-  와이어프레임<br />
-  프로토타입<br />
-  발표 자료<br />
-  디자인 시스템
-</td>
-
-<td valign="top">
-  담당 내용
-</td>
-
-<td valign="top">
-  담당 내용
-</td>
-
-<td valign="top">
-  담당 내용
-</td>
-
-<td valign="top">
-  담당 내용
-</td>
-```
-
+    <td valign="top">
+      <b>[ 기획 ]</b><br />
+      서비스 기획<br />
+      타겟 사용자 설정<br />
+      사용자 흐름<br />
+      BM 설계<br /><br />
+      <b>[ 디자인 ]</b><br />
+      와이어프레임<br />
+      프로토타입<br />
+      발표 자료<br />
+      디자인 시스템
+    </td>
+    <td valign="top">
+      담당 내용
+    </td>
   </tr>
 </table>
 
+<br />
+
+<table>
+  <tr align="center">
+    <th width="33%">영진</th>
+    <th width="33%">채원</th>
+    <th width="33%">서인</th>
+  </tr>
+  <tr align="center">
+    <td><b>Frontend</b></td>
+    <td><b>Backend</b></td>
+    <td><b>Backend</b></td>
+  </tr>
+  <tr align="center">
+    <td valign="top">
+      담당 내용
+    </td>
+    <td valign="top">
+      환자·병원 계정 관리<br />
+      환자 증상 접수 및 전달<br />
+      병원 탐색 및 AI 매칭<br />
+      AI 협진 협의안<br />
+      AI 번역 관리
+    </td>
+    <td valign="top">
+      AI 진단서 분석<br />
+      AI 진단서 요약<br />
+      AI 협진 협의안<br />
+      AI 번역 관리<br />
+      동의 기반 의료정보 전송<br />
+      국가 간 병원 협진 관리
+    </td>
+  </tr>
+</table>
 ---
 
 ### 📁 폴더 구조
@@ -272,7 +279,7 @@ python manage.py test
 
 | 구분 | URL |
 | --- | --- |
-| Frontend |  |
+| Frontend | https://borderlesslion-front.vercel.app |
 | Backend API | https://likelion-team2-backend.onrender.com/ |
 
 ---
