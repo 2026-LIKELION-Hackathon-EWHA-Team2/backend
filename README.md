@@ -95,6 +95,8 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 
 ### 👥 팀원 소개
 
+### 👥 팀원 소개
+
 <table>
   <tr align="center">
     <th>주영</th>
@@ -108,10 +110,10 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
-    <td><b>역할</b></td>
-    <td><b>역할</b></td>
-    <td><b>역할</b></td>
-    <td><b>역할</b></td>
+    <td><b>Frontend</b></td>
+    <td><b>Frontend</b></td>
+    <td><b>Backend</b></td>
+    <td><b>Backend</b></td>
   </tr>
 
   <tr align="center">
@@ -130,36 +132,41 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       영상
     </td>
 
-    <td valign="top">
-      <b>[ 기획 ]</b><br />
-      서비스 기획<br />
-      타겟 사용자 설정<br />
-      사용자 흐름<br />
-      BM 설계<br /><br />
-      <b>[ 디자인 ]</b><br />
-      와이어프레임<br />
-      프로토타입<br />
-      발표 자료<br />
-      디자인 시스템
-    </td>
+```
+<td valign="top">
+  <b>[ 기획 ]</b><br />
+  서비스 기획<br />
+  타겟 사용자 설정<br />
+  사용자 흐름<br />
+  BM 설계<br /><br />
+  <b>[ 디자인 ]</b><br />
+  와이어프레임<br />
+  프로토타입<br />
+  발표 자료<br />
+  디자인 시스템
+</td>
 
-    <td valign="top">
-      담당 내용
-    </td>
+<td valign="top">
+  담당 내용
+</td>
 
-    <td valign="top">
-      담당 내용
-    </td>
+<td valign="top">
+  담당 내용
+</td>
 
-    <td valign="top">
-      담당 내용
-    </td>
+<td valign="top">
+  담당 내용
+</td>
 
-    <td valign="top">
-      담당 내용
-    </td>
+<td valign="top">
+  담당 내용
+</td>
+```
+
   </tr>
 </table>
+
+---
 
 ### 📁 폴더 구조
 
