@@ -65,6 +65,11 @@ class PatientProfileAdmin(admin.ModelAdmin):
         "phone",
     )
 
+    search_fields = (
+        "user__name",
+        "user__username",
+    )
+
 
 @admin.register(HospitalProfile)
 class HospitalProfileAdmin(admin.ModelAdmin):
@@ -77,6 +82,12 @@ class HospitalProfileAdmin(admin.ModelAdmin):
         "phone",
     )
 
+    search_fields = (
+        "user__name",
+        "user__username",
+        "country",
+        "city",
+    )
 
 @admin.register(MedicalSpecialty)
 class MedicalSpecialtyAdmin(admin.ModelAdmin):
