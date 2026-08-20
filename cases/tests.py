@@ -485,8 +485,16 @@ class PatientProcedureHistoryListAPITests(APITestCase):
         )
 
     def test_detail_uses_japanese_patient_agreement_language(self):
-        self.patient.preferred_language = User.Language.JAPANESE
-        self.patient.save(update_fields=["preferred_language"])
+        self.client.force_authenticate(user=self.patient)
+        language_response = self.client.patch(
+            reverse("accounts:patient-profile"),
+            {"preferred_language": User.Language.JAPANESE},
+            format="json",
+        )
+        self.assertEqual(
+            language_response.status_code,
+            status.HTTP_200_OK,
+        )
         _, medical_case = self.create_history_case(
             patient=self.patient,
             patient_profile=self.patient_profile,
