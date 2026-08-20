@@ -62,8 +62,24 @@ class CaseAgreementServiceTests(SimpleTestCase):
         request_input = (
             openai.return_value.responses.create.call_args.kwargs["input"]
         )
+        request_instructions = (
+            openai.return_value.responses.create.call_args.kwargs[
+                "instructions"
+            ]
+        )
         for language in ("ko", "en", "ja", "zh"):
             self.assertIn(f'"{language}"', request_input)
+        self.assertIn("(no chat messages)", request_input)
+        self.assertIn(
+            "Do not invent or add a diagnosis, treatment, medication, "
+            "follow-up plan, prognosis, or bilateral agreement.",
+            request_input,
+        )
+        self.assertIn(
+            "Never include commentary about AI, draft status, review, "
+            "approval",
+            request_instructions,
+        )
 
     @patch("cases.services.OpenAI")
     def test_generate_agreement_rejects_mismatched_evidence_order(
@@ -1662,19 +1678,31 @@ class CaseAgreementAPITests(APITestCase):
             "경과 관찰이 필요합니다.",
         )
 
-    def test_generate_requires_chat_message(self):
+    @patch("cases.views.generate_case_agreement")
+    def test_generate_allows_case_only_draft_without_chat(self, generate):
+        generate.return_value = {
+            "judgment_draft": (
+                "제공된 자료에 기록된 임상 소견입니다."
+            ),
+            "evidence_items": [],
+        }
         self.client.force_authenticate(user=self.origin)
 
         response = self.client.post(self.generate_url, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
-            response.data,
-            {
-                "detail": (
-                    "합의안을 생성할 채팅 메시지가 없습니다."
-                )
-            },
+            response.data["judgment_draft"],
+            "제공된 자료에 기록된 임상 소견입니다.",
+        )
+        generate.assert_called_once()
+        self.assertEqual(
+            generate.call_args.kwargs["messages"],
+            [],
+        )
+        self.assertEqual(
+            generate.call_args.kwargs["case_data"]["clinician_note"],
+            self.medical_case.clinician_note,
         )
 
     def test_generate_rejects_existing_agreement(self):
