@@ -194,7 +194,23 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 #### Frontend
 
 ```text
-
+frontend/
+├── src/
+│   ├── api/          # 계정(Accounts), 케이스(Cases) 등 비동기 API 요청 모듈
+│   ├── assets/       
+│   ├── components/   # 공통 및 페이지별 UI 컴포넌트
+│   ├── hooks/        # TanStack Query Custom Hooks 및 재사용 커스텀 훅
+│   ├── pages/        # 라우팅 기반 주요 화면 페이지
+│   ├── store/        # Zustand 기반 클라이언트 전역 상태 스토어
+│   ├── styles/       
+│   ├── utils/        # API 데이터 매핑, 필드명 변환, 포맷팅 등 유틸리티 함수
+│   ├── App.jsx       # 최상위 라우팅 및 앱 진입 컴포넌트
+│   └── main.jsx      # React 엔트리 포인트 및 Provider(QueryClient 등) 설정
+├── public/           # icons, images 
+├── index.html        
+├── vite.config.js   
+├── package.json      
+└── README.md
 ```
 
 #### Backend
