@@ -481,14 +481,8 @@ class CaseCollaborationRequestDetailSerializer(
         source="medical_case.patient.name",
         read_only=True,
     )
-    procedure_name = serializers.CharField(
-        source="medical_case.procedure_name",
-        read_only=True,
-    )
-    procedure_area = serializers.CharField(
-        source="medical_case.procedure_area",
-        read_only=True,
-    )
+    procedure_name = serializers.SerializerMethodField()
+    procedure_area = serializers.SerializerMethodField()
     consultation_title = serializers.SerializerMethodField()
     procedure_hospital_name = serializers.CharField(
         source="medical_case.origin_hospital.name",
@@ -497,10 +491,7 @@ class CaseCollaborationRequestDetailSerializer(
 
     patient_provided_data = serializers.SerializerMethodField()
 
-    ai_translation_summary = serializers.CharField(
-        source="medical_case.ai_summary",
-        read_only=True,
-    )
+    ai_translation_summary = serializers.SerializerMethodField()
 
 
     class Meta(CaseCollaborationRequestSerializer.Meta):
@@ -515,10 +506,43 @@ class CaseCollaborationRequestDetailSerializer(
         )
         read_only_fields = fields
 
+    def get_display_structured_data(self, obj):
+        transfer = obj.medical_case.case_transfers.first()
+        if transfer is None:
+            return {}
+
+        request = self.context.get("request")
+        display_language = (
+            request.user.hospital_profile.language_code
+            if request is not None
+            else transfer.target_language
+        )
+        return (transfer.translated_data or {}).get(
+            display_language,
+            transfer.structured_data or {},
+        )
+
+    def get_procedure_name(self, obj):
+        procedure = self.get_display_structured_data(obj).get(
+            "procedure", {}
+        )
+        return procedure.get("name") or obj.medical_case.procedure_name
+
+    def get_procedure_area(self, obj):
+        procedure = self.get_display_structured_data(obj).get(
+            "procedure", {}
+        )
+        return procedure.get("area") or obj.medical_case.procedure_area
+
+    def get_ai_translation_summary(self, obj):
+        return self.get_display_structured_data(obj).get(
+            "ai_summary"
+        ) or obj.medical_case.ai_summary
+
     def get_consultation_title(self, obj):
         return (
-            f"{obj.medical_case.procedure_area} "
-            f"{obj.medical_case.procedure_name} 상담"
+            f"{self.get_procedure_area(obj)} "
+            f"{self.get_procedure_name(obj)} 상담"
         )
     
     def get_patient_provided_data(self, obj):
@@ -527,9 +551,19 @@ class CaseCollaborationRequestDetailSerializer(
         if transfer is None:
             return {}
 
+        request = self.context.get("request")
+        display_language = (
+            request.user.hospital_profile.language_code
+            if request is not None
+            else transfer.target_language
+        )
+
         return PartnerCaseTransferSerializer(
             transfer,
-            context=self.context,
+            context={
+                **self.context,
+                "display_language": display_language,
+            },
         ).data["transmitted_data"]
     
 
@@ -1501,7 +1535,14 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
         )
 
     def get_transmitted_data(self, obj):
-        structured = obj.structured_data or {}
+        display_language = self.context.get(
+            "display_language",
+            obj.target_language,
+        )
+        structured = (obj.translated_data or {}).get(
+            display_language,
+            obj.structured_data or {},
+        )
         symptoms = dict(
             structured.get("symptoms") or {}
         )
@@ -1540,7 +1581,7 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
 
         if obj.include_adverse_effects:
             names = ADVERSE_EFFECT_LABELS.get(
-                obj.target_language,
+                display_language,
                 ADVERSE_EFFECT_LABELS["en"],
             )
             data["adverse_effects"] = [

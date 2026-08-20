@@ -1615,10 +1615,18 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             ],
         }
 
+        partner_language = (
+            partner_hospital.hospital_profile.language_code
+        )
+
+        origin_language = (
+            symptom_case.diagnosed_hospital.language_code
+        )
+
         try:
             document_result = analyze_diagnosis_document(
                 symptom_case.diagnosis_document,
-                partner_hospital.hospital_profile.language_code,
+                partner_language,
                 symptom_data,
             )
         except Exception as exc:
@@ -1627,6 +1635,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 {"detail": str(exc)},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
 
         procedure = document_result["procedure"]
         try:
@@ -1645,7 +1654,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         try:
             ai_summary = generate_patient_symptom_translation_summary(
                 symptom_data,
-                partner_hospital.hospital_profile.language_code,
+                partner_language,
             )
         except Exception as exc:
             logger.exception("Case translation summary generation failed")
@@ -1653,6 +1662,31 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 {"detail": str(exc)},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+        origin_document_result = document_result
+        origin_ai_summary = ai_summary
+
+        if origin_language != partner_language:
+            try:
+                origin_document_result = analyze_diagnosis_document(
+                    symptom_case.diagnosis_document,
+                    origin_language,
+                    symptom_data,
+                )
+                origin_ai_summary = (
+                    generate_patient_symptom_translation_summary(
+                        symptom_data,
+                        origin_language,
+                    )
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Origin hospital translation generation failed"
+                )
+                return Response(
+                    {"detail": str(exc)},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
 
         translated_symptoms = document_result.get("symptoms") or {}
         patient_birth_date = serializer.validated_data.get(
@@ -1709,6 +1743,46 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             "ai_summary": ai_summary,
         }
 
+        origin_translated_symptoms = (
+            origin_document_result.get("symptoms") or {}
+        )
+        origin_structured_data = {
+            "patient_info": structured_data["patient_info"],
+            "symptoms": {
+                "description": (
+                    origin_translated_symptoms.get("description")
+                    or symptom_data["description"]
+                ),
+                "start_date": (
+                    origin_translated_symptoms.get("start_date")
+                    or symptom_data["start_date"]
+                ),
+                "onset_timing": (
+                    origin_translated_symptoms.get("onset_timing")
+                    or symptom_data["onset_timing"]
+                ),
+                "pain_level": (
+                    origin_translated_symptoms.get("pain_level")
+                    if origin_translated_symptoms.get("pain_level")
+                    is not None
+                    else symptom_data["pain_level"]
+                ),
+                "areas": (
+                    origin_translated_symptoms.get("areas")
+                    or symptom_data["areas"]
+                ),
+                "types": (
+                    origin_translated_symptoms.get("types")
+                    or symptom_data["types"]
+                ),
+                "images": structured_data["symptoms"]["images"],
+            },
+            "procedure": origin_document_result["procedure"],
+            "ingredients": origin_document_result["ingredients"],
+            "clinician_note": origin_document_result["clinician_note"],
+            "ai_summary": origin_ai_summary,
+        }
+
         with transaction.atomic():
             DiagnosisAnalysis.objects.update_or_create(
                 symptom_case=symptom_case,
@@ -1753,7 +1827,10 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             transfer = serializer.save(
                 medical_case=medical_case,
                 structured_data=structured_data,
-                translated_data={},
+                translated_data={
+                    partner_language: structured_data,
+                    origin_language: origin_structured_data,
+                },
                 status=CaseTransfer.Status.REVIEW_REQUIRED,
                 processing_error="",
             )
