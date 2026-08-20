@@ -159,14 +159,21 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
   </tr>
   <tr align="center">
     <td valign="top">
-      UI 컴포넌트 제작<br />
-      전역 상태 관리 아키텍처 설계 및 구현<br />
-      TanStack Query 기반 커스텀 훅 레이어 구축<br />
-      Axios Instance 및 Interceptor 기반 공통 API 통신 환경 구축<br />
-      데이터 변환 및 매핑 유틸리티(Util) 제작<br />
-      환자 케이스 등록, 동기화 페이지 제작<br />
-      병원 케이스 조회 페이지 제작<br />
-      계정 및 환자 케이스 API 연동
+      <p><b>[ 상태 관리·아키텍처 ]</b><br>
+        Zustand 기반 전역 상태 관리 설계 및 구현<br>
+        TanStack Query 기반 커스텀 훅 레이어 구축</p>
+      <br>
+      <p><b>[ 네트워크·데이터 가공 ]</b><br>
+        Axios Instance 및 Interceptor 기반 공통 API 통신 환경 구축<br>
+        데이터 변환 및 매핑 유틸리티(Util) 제작</p>
+      <br>
+      <p><b>[ 화면·UI 개발 ]</b><br>
+        공통 UI 컴포넌트 제작<br>
+        환자 케이스 등록 및 동기화 페이지 제작<br>
+        병원 케이스 조회 페이지 제작</p>
+      <br>
+      <p><b>[ API 연동 ]</b><br>
+        계정 및 환자 케이스 API 연동</p>
     </td>
     <td valign="top">
       <b>[ 계정·프로필 ]</b><br />
