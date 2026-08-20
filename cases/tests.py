@@ -1,7 +1,10 @@
+import json
 from datetime import date, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -22,6 +25,82 @@ from .models import (
     CaseTransfer,
     MedicalCase,
 )
+from .services import (
+    generate_case_agreement,
+    translate_case_agreement_opinion,
+)
+
+
+class CaseAgreementServiceTests(SimpleTestCase):
+    @staticmethod
+    def localized_payload():
+        return {
+            language: {
+                "judgment_draft": f"{language} judgment",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": f"{language} evidence",
+                        "order": 1,
+                    }
+                ],
+            }
+            for language in ("ko", "en", "ja", "zh")
+        }
+
+    @patch("cases.services.OpenAI")
+    def test_generate_agreement_requires_all_four_languages(self, openai):
+        openai.return_value.responses.create.return_value = (
+            SimpleNamespace(
+                output_text=json.dumps(self.localized_payload()),
+            )
+        )
+
+        result = generate_case_agreement({}, [])
+
+        self.assertEqual(set(result), {"ko", "en", "ja", "zh"})
+        request_input = (
+            openai.return_value.responses.create.call_args.kwargs["input"]
+        )
+        for language in ("ko", "en", "ja", "zh"):
+            self.assertIn(f'"{language}"', request_input)
+
+    @patch("cases.services.OpenAI")
+    def test_generate_agreement_rejects_mismatched_evidence_order(
+        self,
+        openai,
+    ):
+        payload = self.localized_payload()
+        payload["ja"]["evidence_items"][0]["order"] = 2
+        openai.return_value.responses.create.return_value = (
+            SimpleNamespace(output_text=json.dumps(payload))
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "언어별 주요 근거 ID와 순서가 일치하지 않습니다.",
+        ):
+            generate_case_agreement({}, [])
+
+    @patch("cases.services.OpenAI")
+    def test_opinion_translation_preserves_exact_source(self, openai):
+        translations = {
+            "ko": "한국어",
+            "en": "English",
+            "ja": "日本語",
+            "zh": "中文",
+        }
+        openai.return_value.responses.create.return_value = (
+            SimpleNamespace(output_text=json.dumps(translations))
+        )
+
+        result = translate_case_agreement_opinion(
+            "의료진 원문",
+            "ko",
+        )
+
+        self.assertEqual(result["ko"], "의료진 원문")
+        self.assertEqual(result["ja"], "日本語")
 
 
 class MedicalCaseReadAPITests(APITestCase):
@@ -331,6 +410,86 @@ class PatientProcedureHistoryListAPITests(APITestCase):
                 for review in final_agreement["reviews"]
             ],
             [origin_review.hospital_id, partner_review.hospital_id],
+        )
+
+    def test_detail_uses_japanese_patient_agreement_language(self):
+        self.patient.preferred_language = User.Language.JAPANESE
+        self.patient.save(update_fields=["preferred_language"])
+        _, medical_case = self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="보톡스",
+            procedure_date=date(2025, 8, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=timezone.now(),
+        )
+        agreement = CaseAgreement.objects.get(
+            chat_room__medical_case=medical_case,
+        )
+        agreement.localized_content = {
+            "ko": {
+                "judgment_draft": "경과 관찰이 필요합니다.",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": "감염 징후가 없습니다.",
+                        "order": 1,
+                    }
+                ],
+            },
+            "ja": {
+                "judgment_draft": "経過観察が必要です。",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": "感染の兆候はありません。",
+                        "order": 1,
+                    }
+                ],
+            },
+        }
+        agreement.additional_opinion = "일주일 후 확인이 필요합니다."
+        agreement.additional_opinion_source_language = "ko"
+        agreement.additional_opinion_translations = {
+            "ko": "일주일 후 확인이 필요합니다.",
+            "ja": "1週間後の確認が必要です。",
+        }
+        agreement.additional_opinion_translation_status = (
+            CaseAgreement.OpinionTranslationStatus.COMPLETED
+        )
+        agreement.save()
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(
+            reverse(
+                "patient-procedure-history-detail",
+                kwargs={"medical_case_id": medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        final_agreement = response.data["final_agreement"]
+        self.assertEqual(final_agreement["display_language"], "ja")
+        self.assertEqual(
+            final_agreement["judgment_draft"],
+            "経過観察が必要です。",
+        )
+        self.assertEqual(
+            final_agreement["additional_opinion"],
+            "1週間後の確認が必要です。",
+        )
+        self.assertEqual(
+            final_agreement[
+                "additional_opinion_original_content"
+            ],
+            "일주일 후 확인이 필요합니다.",
+        )
+        self.assertEqual(
+            final_agreement[
+                "additional_opinion_display_language"
+            ],
+            "ja",
         )
 
     def test_detail_hides_other_patients_history(self):
@@ -1101,6 +1260,19 @@ class CaseChatRoomListAndReadTests(APITestCase):
 
 class CaseAgreementAPITests(APITestCase):
     def setUp(self):
+        opinion_patcher = patch(
+            "cases.views.translate_case_agreement_opinion",
+            side_effect=self.build_opinion_translations,
+        )
+        self.translate_opinion = opinion_patcher.start()
+        self.addCleanup(opinion_patcher.stop)
+        content_patcher = patch(
+            "cases.views.translate_case_agreement_content",
+            side_effect=self.build_agreement_translations,
+        )
+        self.translate_agreement_content = content_patcher.start()
+        self.addCleanup(content_patcher.stop)
+
         self.patient = User.objects.create_user(
             username="agreement-patient",
             password="TestPassword!2026",
@@ -1168,6 +1340,41 @@ class CaseAgreementAPITests(APITestCase):
             ],
         }
 
+    @staticmethod
+    def build_opinion_translations(text, source_language):
+        translations = {
+            language: f"{language}:{text}"
+            for language in ("ko", "en", "ja", "zh")
+        }
+        translations[source_language] = text
+        return translations
+
+    @staticmethod
+    def build_agreement_translations(
+        judgment_draft,
+        evidence_items,
+        source_language,
+    ):
+        translations = {}
+        for language in ("ko", "en", "ja", "zh"):
+            translated_evidence = [
+                {
+                    **item,
+                    "content": f"{language}:{item['content']}",
+                }
+                for item in evidence_items
+            ]
+            translations[language] = {
+                "judgment_draft": f"{language}:{judgment_draft}",
+                "evidence_items": translated_evidence,
+            }
+
+        translations[source_language] = {
+            "judgment_draft": judgment_draft,
+            "evidence_items": evidence_items,
+        }
+        return translations
+
     def create_agreement(self):
         self.client.force_authenticate(user=self.origin)
         return self.client.post(
@@ -1230,6 +1437,95 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(response.data["changed_fields"], [])
         self.assertEqual(response.data["version"], 1)
 
+    def test_manual_edit_refreshes_all_agreement_languages(self):
+        self.create_agreement()
+
+        response = self.client.patch(
+            self.detail_url,
+            {"judgment_draft": "추가 관찰이 필요합니다."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        agreement = CaseAgreement.objects.get(chat_room=self.chat_room)
+        self.assertEqual(
+            set(agreement.localized_content),
+            {"ko", "en", "ja", "zh"},
+        )
+
+        self.client.force_authenticate(user=self.partner)
+        japanese_response = self.client.get(self.detail_url)
+        self.assertEqual(
+            japanese_response.data["judgment_draft"],
+            "ja:추가 관찰이 필요합니다.",
+        )
+
+    def test_additional_opinion_returns_original_and_translation(self):
+        self.create_agreement()
+
+        response = self.client.patch(
+            self.detail_url,
+            {"additional_opinion": "일주일 후 확인이 필요합니다."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["additional_opinion_display_content"],
+            "일주일 후 확인이 필요합니다.",
+        )
+        self.assertEqual(
+            response.data["additional_opinion_source_language"],
+            "ko",
+        )
+
+        self.client.force_authenticate(user=self.partner)
+        japanese_response = self.client.get(self.detail_url)
+        self.assertEqual(
+            japanese_response.data["additional_opinion"],
+            "일주일 후 확인이 필요합니다.",
+        )
+        self.assertEqual(
+            japanese_response.data[
+                "additional_opinion_translated_content"
+            ],
+            "ja:일주일 후 확인이 필요합니다.",
+        )
+        self.assertEqual(
+            japanese_response.data[
+                "additional_opinion_display_content"
+            ],
+            "ja:일주일 후 확인이 필요합니다.",
+        )
+        self.assertEqual(
+            japanese_response.data[
+                "additional_opinion_translation_status"
+            ],
+            CaseAgreement.OpinionTranslationStatus.COMPLETED,
+        )
+
+    def test_additional_opinion_translation_failure_keeps_original(self):
+        self.create_agreement()
+        self.translate_opinion.side_effect = RuntimeError(
+            "OpenAI unavailable"
+        )
+
+        response = self.client.patch(
+            self.detail_url,
+            {"additional_opinion": "원문은 반드시 저장합니다."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["additional_opinion"],
+            "원문은 반드시 저장합니다.",
+        )
+        self.assertEqual(
+            response.data["additional_opinion_translation_status"],
+            CaseAgreement.OpinionTranslationStatus.FAILED,
+        )
+
     @patch("cases.views.generate_case_agreement")
     def test_ai_does_not_write_additional_opinion(self, generate):
         CaseChatMessage.objects.create(
@@ -1275,12 +1571,34 @@ class CaseAgreementAPITests(APITestCase):
                     }
                 ],
             },
+            "en": {
+                "judgment_draft": "Follow-up observation is required.",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": (
+                            "No signs of infection have been identified."
+                        ),
+                        "order": 1,
+                    }
+                ],
+            },
             "ja": {
                 "judgment_draft": "経過観察が必要です。",
                 "evidence_items": [
                     {
                         "id": "evidence-1",
                         "content": "感染の兆候は確認されていません。",
+                        "order": 1,
+                    }
+                ],
+            },
+            "zh": {
+                "judgment_draft": "需要继续观察。",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": "未发现感染迹象。",
                         "order": 1,
                     }
                 ],
@@ -1315,6 +1633,33 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(
             japanese_response.data["evidence_items"][0]["content"],
             "感染の兆候は確認されていません。",
+        )
+
+        self.partner.preferred_language = User.Language.ENGLISH
+        self.partner.save(update_fields=["preferred_language"])
+        english_response = self.client.get(self.detail_url)
+        self.assertEqual(english_response.data["display_language"], "en")
+        self.assertEqual(
+            english_response.data["judgment_draft"],
+            "Follow-up observation is required.",
+        )
+
+        self.partner.preferred_language = User.Language.CHINESE
+        self.partner.save(update_fields=["preferred_language"])
+        chinese_response = self.client.get(self.detail_url)
+        self.assertEqual(chinese_response.data["display_language"], "zh")
+        self.assertEqual(
+            chinese_response.data["judgment_draft"],
+            "需要继续观察。",
+        )
+
+        self.partner.preferred_language = "fr"
+        self.partner.save(update_fields=["preferred_language"])
+        fallback_response = self.client.get(self.detail_url)
+        self.assertEqual(fallback_response.data["display_language"], "ko")
+        self.assertEqual(
+            fallback_response.data["judgment_draft"],
+            "경과 관찰이 필요합니다.",
         )
 
     def test_generate_requires_chat_message(self):
@@ -1969,7 +2314,19 @@ class CaseTransferFlowTests(APITestCase):
         self.assertIsNotNone(response.data["agreed_at"])
         self.assertFalse(CaseCollaborationRequest.objects.exists())
 
-    def test_symptom_completes_only_after_final_agreement(self):
+    @patch(
+        "cases.views.translate_case_agreement_opinion",
+        return_value={
+            "ko": "증상 악화 시 내원 바랍니다.",
+            "en": "Please visit the hospital if symptoms worsen.",
+            "ja": "症状が悪化した場合は来院してください。",
+            "zh": "如果症状恶化，请到医院就诊。",
+        },
+    )
+    def test_symptom_completes_only_after_final_agreement(
+        self,
+        translate_opinion,
+    ):
         create_response = self.create_transfer()
         transfer_id = create_response.data["id"]
         transfer = CaseTransfer.objects.select_related(

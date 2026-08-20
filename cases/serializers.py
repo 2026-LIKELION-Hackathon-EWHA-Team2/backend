@@ -17,6 +17,82 @@ from .models import (
     CaseCollaborationRequest,
     MedicalCase,
 )
+from .services import normalize_agreement_language
+
+
+def get_agreement_language_content(agreement, requested_language):
+    language = normalize_agreement_language(requested_language)
+    localized_content = agreement.localized_content or {}
+
+    localized = localized_content.get(language)
+    display_language = language
+
+    if not isinstance(localized, dict):
+        localized = localized_content.get("ko")
+        display_language = "ko"
+
+    if not isinstance(localized, dict):
+        localized = {}
+        for fallback_language, fallback_content in (
+            localized_content.items()
+        ):
+            if isinstance(fallback_content, dict):
+                localized = fallback_content
+                display_language = normalize_agreement_language(
+                    fallback_language
+                )
+                break
+
+    return {
+        "judgment_draft": localized.get(
+            "judgment_draft",
+            agreement.judgment_draft,
+        ),
+        "evidence_items": localized.get(
+            "evidence_items",
+            agreement.evidence_items,
+        ),
+        "display_language": display_language,
+    }
+
+
+def get_agreement_opinion_content(agreement, requested_language):
+    language = normalize_agreement_language(requested_language)
+    original_content = agreement.additional_opinion
+    source_language = agreement.additional_opinion_source_language
+    if source_language:
+        source_language = normalize_agreement_language(source_language)
+    translations = agreement.additional_opinion_translations or {}
+    translated_content = None
+
+    if (
+        agreement.additional_opinion_translation_status
+        == CaseAgreement.OpinionTranslationStatus.COMPLETED
+    ):
+        translated_content = translations.get(language)
+
+    if source_language and language == source_language:
+        display_content = original_content
+        display_language = source_language
+    elif translated_content:
+        display_content = translated_content
+        display_language = language
+    else:
+        display_content = original_content
+        display_language = source_language
+
+    return {
+        "original_content": original_content,
+        "source_language": source_language if original_content else None,
+        "translated_content": translated_content,
+        "translation_status": (
+            agreement.additional_opinion_translation_status or None
+        ),
+        "display_content": display_content,
+        "display_language": (
+            display_language if original_content else None
+        ),
+    }
 
 
 ADVERSE_EFFECT_LABELS = {
@@ -259,13 +335,46 @@ class PatientProcedureHistoryDetailSerializer(
     def get_final_agreement(self, obj):
         chat_room = self.get_final_chat_room(obj)
         agreement = chat_room.agreement
+        request = self.context.get("request")
+        requested_language = (
+            request.user.preferred_language
+            if request is not None
+            else "ko"
+        )
+        localized = get_agreement_language_content(
+            agreement,
+            requested_language,
+        )
+        opinion = get_agreement_opinion_content(
+            agreement,
+            requested_language,
+        )
         return {
             "agreement_id": agreement.id,
             "version": agreement.version,
             "status": agreement.status,
-            "judgment_draft": agreement.judgment_draft,
-            "evidence_items": agreement.evidence_items,
-            "additional_opinion": agreement.additional_opinion,
+            "judgment_draft": localized["judgment_draft"],
+            "evidence_items": localized["evidence_items"],
+            "additional_opinion": opinion["display_content"],
+            "additional_opinion_original_content": opinion[
+                "original_content"
+            ],
+            "additional_opinion_source_language": opinion[
+                "source_language"
+            ],
+            "additional_opinion_translated_content": opinion[
+                "translated_content"
+            ],
+            "additional_opinion_translation_status": opinion[
+                "translation_status"
+            ],
+            "additional_opinion_display_content": opinion[
+                "display_content"
+            ],
+            "additional_opinion_display_language": opinion[
+                "display_language"
+            ],
+            "display_language": localized["display_language"],
             "finalized_at": (
                 serializers.DateTimeField().to_representation(
                     agreement.finalized_at
@@ -718,6 +827,22 @@ class EvidenceItemSerializer(serializers.Serializer):
 
 class CaseAgreementSerializer(serializers.ModelSerializer):
     evidence_items = EvidenceItemSerializer(many=True)
+    additional_opinion_original_content = serializers.CharField(
+        source="additional_opinion",
+        read_only=True,
+    )
+    additional_opinion_translated_content = (
+        serializers.SerializerMethodField()
+    )
+    additional_opinion_translation_status = (
+        serializers.SerializerMethodField()
+    )
+    additional_opinion_display_content = (
+        serializers.SerializerMethodField()
+    )
+    additional_opinion_display_language = (
+        serializers.SerializerMethodField()
+    )
     edited_by_name = serializers.CharField(
         source="edited_by.name",
         read_only=True,
@@ -747,6 +872,12 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "judgment_draft",
             "evidence_items",
             "additional_opinion",
+            "additional_opinion_original_content",
+            "additional_opinion_source_language",
+            "additional_opinion_translated_content",
+            "additional_opinion_translation_status",
+            "additional_opinion_display_content",
+            "additional_opinion_display_language",
             "status",
             "version",
             "latest_edit",
@@ -771,6 +902,12 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
             "chat_room",
             "status",
             "version",
+            "additional_opinion_original_content",
+            "additional_opinion_source_language",
+            "additional_opinion_translated_content",
+            "additional_opinion_translation_status",
+            "additional_opinion_display_content",
+            "additional_opinion_display_language",
             "latest_edit",
             "edited_by_name",
             "edited_at",
@@ -941,6 +1078,30 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         # 완료 확인은 이후 편집에도 유지되므로 재검토 단계가 없습니다.
         return False
 
+    def get_opinion_content(self, obj):
+        request = self.context.get("request")
+        requested_language = (
+            request.user.preferred_language
+            if request is not None
+            else "ko"
+        )
+        return get_agreement_opinion_content(
+            obj,
+            requested_language,
+        )
+
+    def get_additional_opinion_translated_content(self, obj):
+        return self.get_opinion_content(obj)["translated_content"]
+
+    def get_additional_opinion_translation_status(self, obj):
+        return self.get_opinion_content(obj)["translation_status"]
+
+    def get_additional_opinion_display_content(self, obj):
+        return self.get_opinion_content(obj)["display_content"]
+
+    def get_additional_opinion_display_language(self, obj):
+        return self.get_opinion_content(obj)["display_language"]
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
@@ -948,25 +1109,13 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         if request is None:
             return data
 
-        language = request.user.preferred_language
-        if language not in {"ko", "ja"}:
-            language = "ko"
-
-        localized_content = instance.localized_content or {}
-        localized = (
-            localized_content.get(language)
-            or localized_content.get("ko")
-            or {}
+        localized = get_agreement_language_content(
+            instance,
+            request.user.preferred_language,
         )
-        data["judgment_draft"] = localized.get(
-            "judgment_draft",
-            data["judgment_draft"],
-        )
-        data["evidence_items"] = localized.get(
-            "evidence_items",
-            data["evidence_items"],
-        )
-        data["display_language"] = language
+        data["judgment_draft"] = localized["judgment_draft"]
+        data["evidence_items"] = localized["evidence_items"]
+        data["display_language"] = localized["display_language"]
         return data
 
 
