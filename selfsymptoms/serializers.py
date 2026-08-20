@@ -365,9 +365,6 @@ class PatientSymptomCaseSerializer(
             if not attrs.get(field_name):
                 errors[field_name] = message
 
-        if not (attrs.get("description") or "").strip():
-            errors["description"] = "증상 상세 설명을 입력해 주세요."
-
         if attrs.get("pain_level") is None:
             errors["pain_level"] = "통증 정도를 선택해 주세요."
 
