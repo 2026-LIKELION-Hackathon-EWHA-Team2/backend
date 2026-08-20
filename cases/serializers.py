@@ -1325,8 +1325,30 @@ class PartnerCaseTransferSerializer(serializers.ModelSerializer):
 
     def get_transmitted_data(self, obj):
         structured = obj.structured_data or {}
+        symptoms = dict(
+            structured.get("symptoms") or {}
+        )
+
+        request = self.context.get("request")
+        image_urls = []
+
+        for symptom_image in obj.symptom_case.images.all():
+            if not symptom_image.image:
+                continue
+
+            image_url = symptom_image.image.url
+
+            if request is not None:
+                image_url = request.build_absolute_uri(
+                    image_url
+                )
+
+            image_urls.append(image_url)
+
+        symptoms["images"] = image_urls
+
         data = {
-            "symptoms": structured.get("symptoms", {}),
+            "symptoms": symptoms,
         }
 
         if obj.include_patient_info:
