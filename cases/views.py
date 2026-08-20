@@ -1477,14 +1477,20 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             )
 
         translated_symptoms = document_result.get("symptoms") or {}
-
+        patient_birth_date = serializer.validated_data.get(
+            "patient_birth_date"
+        )
         structured_data = {
             "patient_info": {
                 "name": serializer.validated_data["patient_name"],
-                "gender": serializer.validated_data["patient_gender"],
-                "birth_date": serializer.validated_data[
-                    "patient_birth_date"
-                ].isoformat(),
+                "gender": serializer.validated_data.get(
+                    "patient_gender"
+                ),
+                "birth_date": (
+                     patient_birth_date.isoformat()
+                     if patient_birth_date
+                     else None
+                ),
             },
             "symptoms": {
                 "description": (

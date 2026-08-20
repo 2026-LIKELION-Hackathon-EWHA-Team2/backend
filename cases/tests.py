@@ -1598,6 +1598,64 @@ class CaseTransferFlowTests(APITestCase):
             ).exists()
         )
 
+    def test_transfer_allows_missing_gender_and_birth_date(self):
+        payload = self.transfer_payload()
+        payload.pop("patient_gender")
+        payload.pop("patient_birth_date")
+
+        with (
+            patch(
+                "cases.views.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.views.generate_patient_symptom_translation_summary",
+                return_value="Translated summary",
+            ),
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                payload,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        transfer = CaseTransfer.objects.get(pk=response.data["id"])
+        self.assertIsNone(transfer.patient_gender)
+        self.assertIsNone(transfer.patient_birth_date)
+        self.assertIsNone(
+            transfer.structured_data["patient_info"]["gender"]
+        )
+        self.assertIsNone(
+            transfer.structured_data["patient_info"]["birth_date"]
+        )
+
+    def test_transfer_allows_null_gender_and_birth_date(self):
+        payload = self.transfer_payload()
+        payload["patient_gender"] = None
+        payload["patient_birth_date"] = None
+
+        with (
+            patch(
+                "cases.views.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.views.generate_patient_symptom_translation_summary",
+                return_value="Translated summary",
+            ),
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                payload,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        transfer = CaseTransfer.objects.get(pk=response.data["id"])
+        self.assertIsNone(transfer.patient_gender)
+        self.assertIsNone(transfer.patient_birth_date)
+
     def test_transfer_preserves_patient_symptoms_when_ai_values_are_empty(self):
         document_result = self.document_result()
         document_result["symptoms"] = {

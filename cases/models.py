@@ -425,8 +425,13 @@ class CaseTransfer(models.Model):
     patient_gender = models.CharField(
         max_length=20,
         choices=Gender.choices,
+        null=True,
+        blank=True,
     )
-    patient_birth_date = models.DateField()
+    patient_birth_date = models.DateField(
+        null=True, 
+        blank=True,
+    )
 
     target_language = models.CharField(max_length=10)
 
