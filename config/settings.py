@@ -46,6 +46,7 @@ ALLOWED_HOSTS = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "https://borderlesslion-front.vercel.app"
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -56,16 +57,19 @@ RENDER_EXTERNAL_HOSTNAME = os.environ.get(
     "RENDER_EXTERNAL_HOSTNAME"
 )
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://borderlesslion-front.vercel.app",
+]
+
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(
         RENDER_EXTERNAL_HOSTNAME
     )
 
-    CSRF_TRUSTED_ORIGINS = [
+    CSRF_TRUSTED_ORIGINS.append(
         f"https://{RENDER_EXTERNAL_HOSTNAME}"
-    ]
-else:
-    CSRF_TRUSTED_ORIGINS = []
+    )
+    
 
 
 
