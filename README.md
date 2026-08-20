@@ -292,7 +292,7 @@ pip install -r requirements.txt
 프로젝트 루트에 `.env` 파일을 생성합니다.
 
 ```dotenv
-SECRET_KEY=
+SECRET_KEY=SECRET_KEY=django-insecure-local-development-only
 DEBUG=True
 DATABASE_URL=
 OPENAI_API_KEY=
