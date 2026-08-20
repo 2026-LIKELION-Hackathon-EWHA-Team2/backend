@@ -59,6 +59,15 @@ class CaseAgreementServiceTests(SimpleTestCase):
         result = generate_case_agreement({}, [])
 
         self.assertEqual(set(result), {"ko", "en", "ja", "zh"})
+        self.assertEqual(
+            result["ko"]["judgment_draft"],
+            "현재 협진 채팅에서 확인된 의료적 합의 내용이 없습니다.",
+        )
+        self.assertEqual(
+            result["ja"]["judgment_draft"],
+            "現時点では、診療連携チャット上で確認された医学的な"
+            "合意内容はありません。",
+        )
         request_input = (
             openai.return_value.responses.create.call_args.kwargs["input"]
         )
@@ -71,14 +80,30 @@ class CaseAgreementServiceTests(SimpleTestCase):
             self.assertIn(f'"{language}"', request_input)
         self.assertIn("(no chat messages)", request_input)
         self.assertIn(
-            "Do not invent or add a diagnosis, treatment, medication, "
-            "follow-up plan, prognosis, or bilateral agreement.",
+            "only the conversation can establish whether the hospitals "
+            "reached a bilateral clinical agreement",
+            request_instructions,
+        )
+        self.assertIn(
+            "Greetings, thanks, administrative coordination, and "
+            "acknowledgments without a clear clinical referent do not "
+            "establish an agreement.",
             request_input,
         )
         self.assertIn(
             "Never include commentary about AI, draft status, review, "
             "approval",
             request_instructions,
+        )
+        self.assertIn(
+            "ko: 현재 협진 채팅에서 확인된 의료적 합의 내용이 "
+            "없습니다.",
+            request_input,
+        )
+        self.assertIn(
+            "en: No clinical agreement is documented in the "
+            "consultation chat at this time.",
+            request_input,
         )
 
     @patch("cases.services.OpenAI")
@@ -1682,7 +1707,8 @@ class CaseAgreementAPITests(APITestCase):
     def test_generate_allows_case_only_draft_without_chat(self, generate):
         generate.return_value = {
             "judgment_draft": (
-                "제공된 자료에 기록된 임상 소견입니다."
+                "현재 협진 채팅에서 확인된 의료적 합의 내용이 "
+                "없습니다."
             ),
             "evidence_items": [],
         }
@@ -1693,7 +1719,7 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
             response.data["judgment_draft"],
-            "제공된 자료에 기록된 임상 소견입니다.",
+            "현재 협진 채팅에서 확인된 의료적 합의 내용이 없습니다.",
         )
         generate.assert_called_once()
         self.assertEqual(
