@@ -332,7 +332,10 @@ class PatientProcedureHistoryListView(generics.ListAPIView):
                     ),
                 )
             )
-            .order_by("-procedure_date", "-id")
+            .order_by(
+                F("finalized_at").desc(nulls_last=True),
+                "-id",
+            )
             .distinct()
         )
 

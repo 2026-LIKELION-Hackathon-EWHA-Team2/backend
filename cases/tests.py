@@ -317,6 +317,37 @@ class PatientProcedureHistoryListAPITests(APITestCase):
             finalized_at.isoformat().replace("+00:00", "Z"),
         )
 
+    def test_list_orders_histories_by_latest_finalized_at(self):
+        older_finalized_at = timezone.now() - timedelta(days=2)
+        newer_finalized_at = timezone.now() - timedelta(days=1)
+        self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="최근 시술",
+            procedure_date=date(2025, 9, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=older_finalized_at,
+        )
+        self.create_history_case(
+            patient=self.patient,
+            patient_profile=self.patient_profile,
+            symptom_status=PatientSymptomCase.Status.COMPLETED,
+            procedure_name="최근 합의 완료",
+            procedure_date=date(2025, 8, 1),
+            agreement_status=CaseAgreement.Status.FINAL,
+            finalized_at=newer_finalized_at,
+        )
+        self.client.force_authenticate(user=self.patient)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["procedure_name"] for item in response.data],
+            ["최근 합의 완료", "최근 시술"],
+        )
+
     def test_detail_returns_completed_final_history(self):
         finalized_at = timezone.now() - timedelta(hours=1)
         symptom_case, medical_case = self.create_history_case(
