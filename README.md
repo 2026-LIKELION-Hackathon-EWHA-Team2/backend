@@ -174,8 +174,7 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       병원 간 협진·채팅 번역<br />
       AI 합의안 생성·검토·승인<br /><br />
       <b>[ 배포·운영 ]</b><br />
-      Render·PostgreSQL 배포<br />
-      Cloudinary 파일 영구 저장
+      Render·PostgreSQL 배포
     </td>
   </tr>
 </table>
