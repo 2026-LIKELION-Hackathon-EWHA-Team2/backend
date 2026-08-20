@@ -95,20 +95,25 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
 
 ### 👥 팀원 소개
 
-<!-- 이름, GitHub 주소, 역할과 담당 기능을 입력하세요. -->
-
 <table>
-  <!-- 1~3번 팀원 -->
   <tr align="center">
     <th>주영</th>
     <th>소담</th>
     <th>이름</th>
+    <th>이름</th>
+    <th>이름</th>
+    <th>이름</th>
   </tr>
+
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
-    <td><b>역할</b></td>
+    <td><b>Frontend</b></td>
+    <td><b>Frontend</b></td>
+    <td><b>Backend</b></td>
+    <td><b>Backend</b></td>
   </tr>
+
   <tr align="center">
     <td valign="top">
       <b>[ 기획 ]</b><br />
@@ -124,6 +129,7 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       발표 자료 제작<br />
       영상 제작
     </td>
+
     <td valign="top">
       <b>[ 기획 ]</b><br />
       서비스 기획<br />
@@ -136,43 +142,33 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
       디자인 시스템 구축<br />
       발표 자료 제작
     </td>
-    <td valign="top">
-      담당 내용<br />
-      담당 내용<br />
-      담당 내용
-    </td>
-  </tr>
-</table>
 
-<br />
+    <td valign="top">
+      <b>[ Frontend ]</b><br />
+      담당 기능<br />
+      담당 기능<br />
+      담당 기능
+    </td>
 
-<table>
-  <!-- 4~6번 팀원 -->
-  <tr align="center">
-    <th>이름</th>
-    <th>이름</th>
-    <th>이름</th>
-  </tr>
-  <tr align="center">
-    <td><b>역할</b></td>
-    <td><b>역할</b></td>
-    <td><b>역할</b></td>
-  </tr>
-  <tr align="center">
     <td valign="top">
-      담당 내용<br />
-      담당 내용<br />
-      담당 내용
+      <b>[ Frontend ]</b><br />
+      담당 기능<br />
+      담당 기능<br />
+      담당 기능
     </td>
+
     <td valign="top">
-      담당 내용<br />
-      담당 내용<br />
-      담당 내용
+      <b>[ Backend ]</b><br />
+      담당 기능<br />
+      담당 기능<br />
+      담당 기능
     </td>
+
     <td valign="top">
-      담당 내용<br />
-      담당 내용<br />
-      담당 내용
+      <b>[ Backend ]</b><br />
+      담당 기능<br />
+      담당 기능<br />
+      담당 기능
     </td>
   </tr>
 </table>
