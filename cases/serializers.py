@@ -386,6 +386,14 @@ class CaseCollaborationRequestDetailSerializer(
         read_only=True,
     )
 
+    patient_provided_data = serializers.SerializerMethodField()
+
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
+
+
     class Meta(CaseCollaborationRequestSerializer.Meta):
         fields = CaseCollaborationRequestSerializer.Meta.fields + (
             "patient_name",
@@ -393,13 +401,28 @@ class CaseCollaborationRequestDetailSerializer(
             "procedure_area",
             "consultation_title",
             "procedure_hospital_name",
+            "patient_provided_data",
+            "ai_translation_summary",
         )
+        read_only_fields = fields
 
     def get_consultation_title(self, obj):
         return (
             f"{obj.medical_case.procedure_area} "
             f"{obj.medical_case.procedure_name} 상담"
         )
+    
+    def get_patient_provided_data(self, obj):
+        transfer = obj.medical_case.case_transfers.first()
+
+        if transfer is None:
+            return {}
+
+        return PartnerCaseTransferSerializer(
+            transfer,
+            context=self.context,
+        ).data["transmitted_data"]
+    
 
 
 class CaseChatMessageSerializer(serializers.ModelSerializer):
