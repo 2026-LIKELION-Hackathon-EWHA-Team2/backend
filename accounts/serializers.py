@@ -33,6 +33,11 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         source="user.name",
         read_only=True,
     )
+    preferred_language = serializers.ChoiceField(
+        source="user.preferred_language",
+        choices=User.Language.choices,
+        required=False,
+    )
 
     medical_passport_no = serializers.SerializerMethodField()
     last_updated = serializers.SerializerMethodField()
@@ -43,6 +48,7 @@ class PatientProfileSerializer(serializers.ModelSerializer):
         fields = (
             "patient_id",
             "name",
+            "preferred_language",
             "passport_number",
             "medical_passport_no",
             "birth_date",
@@ -62,6 +68,19 @@ class PatientProfileSerializer(serializers.ModelSerializer):
             "medical_passport_no",
             "last_updated",
         )
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop("user", {})
+        preferred_language = user_data.get("preferred_language")
+
+        profile = super().update(instance, validated_data)
+
+        if preferred_language is not None:
+            instance.user.preferred_language = preferred_language
+            instance.user.save(update_fields=("preferred_language",))
+
+        return profile
 
     def get_medical_passport_no(self, obj):
         return (

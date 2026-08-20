@@ -43,12 +43,42 @@ class PatientProfileReadTests(APITestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["preferred_language"], "ko")
         self.assertEqual(
             response.data["medical_passport_no"],
             (
                 f"MP-{self.user.date_joined.year}-"
                 f"{self.profile.patient_id:04d}"
             ),
+        )
+
+    def test_patient_can_update_preferred_language(self):
+        response = self.client.patch(
+            self.url,
+            {"preferred_language": "ja"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["preferred_language"], "ja")
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.preferred_language,
+            User.Language.JAPANESE,
+        )
+
+    def test_patient_cannot_update_unsupported_language(self):
+        response = self.client.patch(
+            self.url,
+            {"preferred_language": "fr"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.preferred_language,
+            User.Language.KOREAN,
         )
 
     def test_profile_creation_method_is_not_allowed(self):
