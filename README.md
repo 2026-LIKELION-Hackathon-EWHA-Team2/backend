@@ -108,67 +108,55 @@ Aftor는 환자가 작성한 증상과 진단서 정보를 바탕으로 적절�
   <tr align="center">
     <td><b>PM / UI·UX Design</b></td>
     <td><b>PM / UI·UX Design</b></td>
-    <td><b>Frontend</b></td>
-    <td><b>Frontend</b></td>
-    <td><b>Backend</b></td>
-    <td><b>Backend</b></td>
+    <td><b>역할</b></td>
+    <td><b>역할</b></td>
+    <td><b>역할</b></td>
+    <td><b>역할</b></td>
   </tr>
 
   <tr align="center">
     <td valign="top">
       <b>[ 기획 ]</b><br />
       서비스 기획<br />
-      IA 및 기능 명세서 작성<br />
-      타깃 사용자 설정<br />
-      사용자 흐름 설계<br />
+      IA + 기능 명세서<br />
+      타겟 사용자 설정<br />
+      사용자 흐름<br />
       유저 리서치<br /><br />
       <b>[ 디자인 ]</b><br />
-      로고 디자인<br />
-      프로토타입 제작<br />
-      디자인 시스템 구축<br />
-      발표 자료 제작<br />
-      영상 제작
+      로고<br />
+      프로토타입<br />
+      디자인 시스템<br />
+      발표 자료<br />
+      영상
     </td>
 
     <td valign="top">
       <b>[ 기획 ]</b><br />
       서비스 기획<br />
-      타깃 사용자 설정<br />
-      사용자 흐름 설계<br />
+      타겟 사용자 설정<br />
+      사용자 흐름<br />
       BM 설계<br /><br />
       <b>[ 디자인 ]</b><br />
-      와이어프레임 제작<br />
-      프로토타입 제작<br />
-      디자인 시스템 구축<br />
-      발표 자료 제작
+      와이어프레임<br />
+      프로토타입<br />
+      발표 자료<br />
+      디자인 시스템
     </td>
 
     <td valign="top">
-      <b>[ Frontend ]</b><br />
-      담당 기능<br />
-      담당 기능<br />
-      담당 기능
+      담당 내용
     </td>
 
     <td valign="top">
-      <b>[ Frontend ]</b><br />
-      담당 기능<br />
-      담당 기능<br />
-      담당 기능
+      담당 내용
     </td>
 
     <td valign="top">
-      <b>[ Backend ]</b><br />
-      담당 기능<br />
-      담당 기능<br />
-      담당 기능
+      담당 내용
     </td>
 
     <td valign="top">
-      <b>[ Backend ]</b><br />
-      담당 기능<br />
-      담당 기능<br />
-      담당 기능
+      담당 내용
     </td>
   </tr>
 </table>
