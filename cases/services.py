@@ -11,6 +11,102 @@ LANGUAGE_NAMES = {
     "zh": "Chinese",
 }
 
+SUPPORTED_AGREEMENT_LANGUAGES = ("ko", "en", "ja", "zh")
+
+
+def normalize_agreement_language(language):
+    if language in SUPPORTED_AGREEMENT_LANGUAGES:
+        return language
+    return "ko"
+
+
+def _agreement_output_structure():
+    return {
+        language: {
+            "judgment_draft": "string",
+            "evidence_items": [
+                {
+                    "id": "evidence-1",
+                    "content": "string",
+                    "order": 1,
+                }
+            ],
+        }
+        for language in SUPPORTED_AGREEMENT_LANGUAGES
+    }
+
+
+def _validate_localized_agreement_data(agreement_data):
+    required_fields = {
+        "judgment_draft",
+        "evidence_items",
+    }
+
+    if not isinstance(agreement_data, dict):
+        raise ValueError("AI 합의안 응답 형식이 올바르지 않습니다.")
+
+    localized_content = {}
+    evidence_signature = None
+
+    for language in SUPPORTED_AGREEMENT_LANGUAGES:
+        content = agreement_data.get(language)
+        if (
+            not isinstance(content, dict)
+            or not required_fields.issubset(content)
+            or not isinstance(content["judgment_draft"], str)
+            or not isinstance(content["evidence_items"], list)
+        ):
+            raise ValueError(
+                "AI 합의안 응답에 필수 항목이 없습니다."
+            )
+
+        signature = [
+            (item.get("id"), item.get("order"))
+            for item in content["evidence_items"]
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("id"), str)
+                and isinstance(item.get("content"), str)
+                and isinstance(item.get("order"), int)
+            )
+        ]
+        if len(signature) != len(content["evidence_items"]):
+            raise ValueError(
+                "AI 합의안의 주요 근거 형식이 올바르지 않습니다."
+            )
+
+        if evidence_signature is None:
+            evidence_signature = signature
+        elif signature != evidence_signature:
+            raise ValueError(
+                "언어별 주요 근거 ID와 순서가 일치하지 않습니다."
+            )
+
+        localized_content[language] = {
+            "judgment_draft": content["judgment_draft"],
+            "evidence_items": content["evidence_items"],
+        }
+
+    return localized_content
+
+
+def _parse_localized_agreement_response(response):
+    output_text = response.output_text.strip()
+
+    if not output_text:
+        raise ValueError(
+            "AI가 빈 합의안 초안을 반환했습니다."
+        )
+
+    try:
+        agreement_data = json.loads(output_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "AI 합의안 응답이 JSON 형식이 아닙니다."
+        ) from exc
+
+    return _validate_localized_agreement_data(agreement_data)
+
 
 def _detect_diagnosis_document_mime_type(document_bytes):
     """Detect supported diagnosis document types from their file signature."""
@@ -117,11 +213,12 @@ def generate_case_agreement(case_data, messages):
         ),
         input=(
             "Create a professional inter-hospital consultation "
-            "agreement in both Korean and Japanese. Reflect every "
+            "agreement in Korean, English, Japanese, and Chinese. "
+            "Reflect every "
             "clinically meaningful statement from both hospitals, "
-            "regardless of the source language. The Korean and "
-            "Japanese versions must have the same medical meaning, "
-            "evidence IDs, and evidence order. Translate all human-"
+            "regardless of the source language. All four language "
+            "versions must have the same medical meaning, evidence "
+            "IDs, evidence count, and evidence order. Translate all human-"
             "readable content so that no source-language fragments "
             "remain, except proper nouns and standardized product "
             "names. Use formal medical language suitable for an "
@@ -130,28 +227,7 @@ def generate_case_agreement(case_data, messages):
             f"{json.dumps(case_data, ensure_ascii=False)}\n\n"
             f"Conversation:\n{conversation}\n\n"
             "Return this exact JSON structure:\n"
-            "{\n"
-            '  "ko": {\n'
-            '    "judgment_draft": "string",\n'
-            '    "evidence_items": [\n'
-            "      {\n"
-            '        "id": "evidence-1",\n'
-            '        "content": "string",\n'
-            '        "order": 1\n'
-            "      }\n"
-            "    ]\n"
-            "  },\n"
-            '  "ja": {\n'
-            '    "judgment_draft": "string",\n'
-            '    "evidence_items": [\n'
-            "      {\n"
-            '        "id": "evidence-1",\n'
-            '        "content": "string",\n'
-            '        "order": 1\n'
-            "      }\n"
-            "    ]\n"
-            "  }\n"
-            "}\n"
+            f"{json.dumps(_agreement_output_structure(), indent=2)}\n"
             "Evidence items may be an empty list when there is no "
             "explicit supporting evidence. "
             "Do not create an additional medical opinion; participating "
@@ -159,38 +235,101 @@ def generate_case_agreement(case_data, messages):
         ),
     )
 
-    output_text = response.output_text.strip()
+    return _parse_localized_agreement_response(response)
 
+
+def translate_case_agreement_content(
+    judgment_draft,
+    evidence_items,
+    source_language,
+):
+    source_language = normalize_agreement_language(source_language)
+    source_name = LANGUAGE_NAMES[source_language]
+    source_agreement = json.dumps(
+        {
+            "judgment_draft": judgment_draft,
+            "evidence_items": evidence_items,
+        },
+        ensure_ascii=False,
+    )
+    client = OpenAI()
+    response = client.responses.create(
+        model=settings.OPENAI_TRANSLATION_MODEL,
+        reasoning={"effort": "low"},
+        store=False,
+        instructions=(
+            "You are a professional medical translator. Translate the "
+            "supplied inter-hospital agreement into Korean, English, "
+            "Japanese, and Chinese without adding, removing, summarizing, "
+            "or interpreting information. All versions must preserve the "
+            "same evidence IDs, evidence count, and evidence order. Preserve "
+            "proper nouns, product names, dosages, units, dates, negations, "
+            "and uncertainty. Return only valid JSON."
+        ),
+        input=(
+            f"Source language: {source_name}\n"
+            "Source agreement:\n"
+            f"{source_agreement}\n\n"
+            "Return this exact JSON structure:\n"
+            f"{json.dumps(_agreement_output_structure(), indent=2)}"
+        ),
+    )
+    return _parse_localized_agreement_response(response)
+
+
+def translate_case_agreement_opinion(text, source_language):
+    source_language = normalize_agreement_language(source_language)
+    source_name = LANGUAGE_NAMES[source_language]
+    output_structure = {
+        language: "string"
+        for language in SUPPORTED_AGREEMENT_LANGUAGES
+    }
+    client = OpenAI()
+    response = client.responses.create(
+        model=settings.OPENAI_TRANSLATION_MODEL,
+        reasoning={"effort": "low"},
+        store=False,
+        instructions=(
+            "You are a professional medical translator. Translate the "
+            "clinician-authored additional opinion faithfully into Korean, "
+            "English, Japanese, and Chinese. Do not add, remove, summarize, "
+            "interpret, or provide medical advice. Preserve proper nouns, "
+            "product names, dosages, units, dates, anatomical terms, "
+            "negations, and uncertainty. Return only valid JSON."
+        ),
+        input=(
+            f"Source language: {source_name}\n"
+            f"Source opinion:\n{text}\n\n"
+            "Return this exact JSON structure:\n"
+            f"{json.dumps(output_structure, indent=2)}"
+        ),
+    )
+
+    output_text = response.output_text.strip()
     if not output_text:
-        raise ValueError(
-            "AI가 빈 합의안 초안을 반환했습니다."
-        )
+        raise ValueError("AI가 빈 추가 소견 번역을 반환했습니다.")
 
     try:
-        agreement_data = json.loads(output_text)
+        translations = json.loads(output_text)
     except json.JSONDecodeError as exc:
         raise ValueError(
-            "AI 합의안 응답이 JSON 형식이 아닙니다."
+            "AI 추가 소견 번역이 JSON 형식이 아닙니다."
         ) from exc
 
-    required_fields = {
-        "judgment_draft",
-        "evidence_items",
-    }
-
-    if (
-        not {"ko", "ja"}.issubset(agreement_data)
-        or not all(
-            isinstance(agreement_data.get(language), dict)
-            and required_fields.issubset(agreement_data[language])
-            for language in ("ko", "ja")
-        )
+    if not all(
+        isinstance(translations.get(language), str)
+        and translations[language].strip()
+        for language in SUPPORTED_AGREEMENT_LANGUAGES
     ):
         raise ValueError(
-            "AI 합의안 응답에 필수 항목이 없습니다."
+            "AI 추가 소견 번역에 필수 언어가 없습니다."
         )
 
-    return agreement_data
+    translations[source_language] = text
+    return {
+        language: translations[language]
+        for language in SUPPORTED_AGREEMENT_LANGUAGES
+    }
 
 
 def generate_patient_symptom_translation_summary(

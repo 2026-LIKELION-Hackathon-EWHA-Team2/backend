@@ -284,6 +284,12 @@ class CaseAgreement(models.Model):
         IN_REVIEW = "IN_REVIEW", "의료진 검토 중"
         FINAL = "FINAL", "최종 합의"
 
+    class OpinionTranslationStatus(models.TextChoices):
+        NOT_REQUESTED = "", "번역 없음"
+        PENDING = "PENDING", "번역 중"
+        COMPLETED = "COMPLETED", "번역 완료"
+        FAILED = "FAILED", "번역 실패"
+
     chat_room = models.OneToOneField(
         "CaseChatRoom",
         on_delete=models.PROTECT,
@@ -293,6 +299,26 @@ class CaseAgreement(models.Model):
     judgment_draft = models.TextField()
     evidence_items = models.JSONField(default=list)
     additional_opinion = models.TextField(blank=True, default="")
+    additional_opinion_source_language = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+    )
+    additional_opinion_translations = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    additional_opinion_translation_status = models.CharField(
+        max_length=20,
+        choices=OpinionTranslationStatus.choices,
+        blank=True,
+        default=OpinionTranslationStatus.NOT_REQUESTED,
+    )
+    additional_opinion_translation_error_code = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
     localized_content = models.JSONField(default=dict, blank=True)
 
     status = models.CharField(

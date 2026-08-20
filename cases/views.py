@@ -33,9 +33,13 @@ from .models import (
     MedicalCase,
 )
 from .services import (
+    SUPPORTED_AGREEMENT_LANGUAGES,
     analyze_diagnosis_document,
     generate_case_agreement,
     generate_patient_symptom_translation_summary,
+    normalize_agreement_language,
+    translate_case_agreement_content,
+    translate_case_agreement_opinion,
     translate_medical_message,
 )
 
@@ -57,9 +61,56 @@ from .serializers import (
     MedicalCaseDetailSerializer,
     PatientProcedureHistoryDetailSerializer,
     PatientProcedureHistoryListSerializer,
+    get_agreement_language_content,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def build_additional_opinion_translation_values(
+    additional_opinion,
+    source_language,
+):
+    if not additional_opinion:
+        return {
+            "additional_opinion_source_language": "",
+            "additional_opinion_translations": {},
+            "additional_opinion_translation_status": (
+                CaseAgreement.OpinionTranslationStatus.NOT_REQUESTED
+            ),
+            "additional_opinion_translation_error_code": "",
+        }
+
+    source_language = normalize_agreement_language(source_language)
+
+    try:
+        translations = translate_case_agreement_opinion(
+            additional_opinion,
+            source_language,
+        )
+    except Exception:
+        logger.exception("Case agreement opinion translation failed")
+        return {
+            "additional_opinion_source_language": source_language,
+            "additional_opinion_translations": {
+                source_language: additional_opinion,
+            },
+            "additional_opinion_translation_status": (
+                CaseAgreement.OpinionTranslationStatus.FAILED
+            ),
+            "additional_opinion_translation_error_code": (
+                "OPENAI_TRANSLATION_FAILED"
+            ),
+        }
+
+    return {
+        "additional_opinion_source_language": source_language,
+        "additional_opinion_translations": translations,
+        "additional_opinion_translation_status": (
+            CaseAgreement.OpinionTranslationStatus.COMPLETED
+        ),
+        "additional_opinion_translation_error_code": "",
+    }
 
 def get_collaboration_requests_for_participating_hospital(user):
     """원 병원 또는 협진 병원으로 참여한 협진 요청을 반환합니다."""
@@ -850,9 +901,20 @@ class CaseAgreementDetailView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
+        opinion_translation_values = (
+            build_additional_opinion_translation_values(
+                serializer.validated_data.get(
+                    "additional_opinion",
+                    "",
+                ),
+                request.user.preferred_language,
+            )
+        )
+
         agreement = serializer.save(
             chat_room=chat_room,
             status=CaseAgreement.Status.AI_DRAFT,
+            **opinion_translation_values,
         )
 
         return Response(
@@ -900,11 +962,28 @@ class CaseAgreementDetailView(APIView):
                 "additional_opinion",
             )
 
+            source_language = normalize_agreement_language(
+                request.user.preferred_language
+            )
+            current_localized = get_agreement_language_content(
+                agreement,
+                source_language,
+            )
+            current_values = {
+                "judgment_draft": current_localized[
+                    "judgment_draft"
+                ],
+                "evidence_items": current_localized[
+                    "evidence_items"
+                ],
+                "additional_opinion": agreement.additional_opinion,
+            }
+
             changed_fields = [
                 field
                 for field in editable_fields
                 if field in serializer.validated_data
-                and getattr(agreement, field)
+                and current_values[field]
                 != serializer.validated_data[field]
             ]
 
@@ -936,12 +1015,76 @@ class CaseAgreementDetailView(APIView):
                 edited_by=request.user,
             )
 
+            save_values = {}
+            localized_fields_changed = any(
+                field in changed_fields
+                for field in (
+                    "judgment_draft",
+                    "evidence_items",
+                )
+            )
+
+            if localized_fields_changed:
+                candidate_judgment = serializer.validated_data.get(
+                    "judgment_draft",
+                    current_values["judgment_draft"],
+                )
+                candidate_evidence = serializer.validated_data.get(
+                    "evidence_items",
+                    current_values["evidence_items"],
+                )
+                try:
+                    localized_content = (
+                        translate_case_agreement_content(
+                            candidate_judgment,
+                            candidate_evidence,
+                            source_language,
+                        )
+                    )
+                except Exception:
+                    logger.exception(
+                        "Case agreement content translation failed"
+                    )
+                    localized_content = {
+                        source_language: {
+                            "judgment_draft": candidate_judgment,
+                            "evidence_items": candidate_evidence,
+                        }
+                    }
+
+                canonical_content = localized_content.get(
+                    "ko",
+                    localized_content[source_language],
+                )
+                save_values.update(
+                    {
+                        "judgment_draft": canonical_content[
+                            "judgment_draft"
+                        ],
+                        "evidence_items": canonical_content[
+                            "evidence_items"
+                        ],
+                        "localized_content": localized_content,
+                    }
+                )
+
+            if "additional_opinion" in changed_fields:
+                save_values.update(
+                    build_additional_opinion_translation_values(
+                        serializer.validated_data[
+                            "additional_opinion"
+                        ],
+                        source_language,
+                    )
+                )
+
             agreement = serializer.save(
                 version=agreement.version + 1,
                 status=CaseAgreement.Status.IN_REVIEW,
                 edited_by=request.user,
                 edited_at=timezone.now(),
                 finalized_at=None,
+                **save_values,
             )
 
             # 먼저 완료한 병원의 확인은 이후 편집에도 유효합니다.
@@ -1322,19 +1465,29 @@ class CaseAgreementGenerateView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        if "ko" in generated_data and "ja" in generated_data:
-            localized_content = {
-                language: {
-                    "judgment_draft": generated_data[language][
-                        "judgment_draft"
-                    ],
-                    "evidence_items": generated_data[language][
-                        "evidence_items"
-                    ],
-                }
-                for language in ("ko", "ja")
+        localized_content = {
+            language: {
+                "judgment_draft": generated_data[language][
+                    "judgment_draft"
+                ],
+                "evidence_items": generated_data[language][
+                    "evidence_items"
+                ],
             }
-            generated_data = dict(localized_content["ko"])
+            for language in SUPPORTED_AGREEMENT_LANGUAGES
+            if (
+                isinstance(generated_data.get(language), dict)
+                and "judgment_draft" in generated_data[language]
+                and "evidence_items" in generated_data[language]
+            )
+        }
+
+        if localized_content:
+            canonical_content = (
+                localized_content.get("ko")
+                or next(iter(localized_content.values()))
+            )
+            generated_data = dict(canonical_content)
         else:
             # 기존 호출자와 테스트 payload는 한국어 원본으로 호환합니다.
             localized_content = {
