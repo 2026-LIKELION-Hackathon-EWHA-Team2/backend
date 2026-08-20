@@ -1112,12 +1112,14 @@ class CaseAgreementAPITests(APITestCase):
             password="TestPassword!2026",
             name="Origin Hospital",
             user_type=User.UserType.HOSPITAL,
+            preferred_language=User.Language.KOREAN,
         )
         self.partner = User.objects.create_user(
             username="agreement-partner",
             password="TestPassword!2026",
             name="Tokyo Medical",
             user_type=User.UserType.HOSPITAL,
+            preferred_language=User.Language.JAPANESE,
         )
         self.outsider = User.objects.create_user(
             username="agreement-outsider",
@@ -1247,6 +1249,73 @@ class CaseAgreementAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["additional_opinion"], "")
+
+    @patch("cases.views.generate_case_agreement")
+    def test_ai_agreement_uses_viewer_preferred_language(self, generate):
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.origin,
+            source_language="ko",
+            content="부종과 통증에 대한 경과 관찰이 필요합니다.",
+        )
+        CaseChatMessage.objects.create(
+            chat_room=self.chat_room,
+            sender=self.partner,
+            source_language="ja",
+            content="感染の兆候は確認されていません。",
+        )
+        generate.return_value = {
+            "ko": {
+                "judgment_draft": "경과 관찰이 필요합니다.",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": "감염 징후는 확인되지 않았습니다.",
+                        "order": 1,
+                    }
+                ],
+            },
+            "ja": {
+                "judgment_draft": "経過観察が必要です。",
+                "evidence_items": [
+                    {
+                        "id": "evidence-1",
+                        "content": "感染の兆候は確認されていません。",
+                        "order": 1,
+                    }
+                ],
+            },
+        }
+
+        self.client.force_authenticate(user=self.origin)
+        korean_response = self.client.post(
+            self.generate_url,
+            format="json",
+        )
+
+        self.assertEqual(
+            korean_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(korean_response.data["display_language"], "ko")
+        self.assertEqual(
+            korean_response.data["judgment_draft"],
+            "경과 관찰이 필요합니다.",
+        )
+
+        self.client.force_authenticate(user=self.partner)
+        japanese_response = self.client.get(self.detail_url)
+
+        self.assertEqual(japanese_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(japanese_response.data["display_language"], "ja")
+        self.assertEqual(
+            japanese_response.data["judgment_draft"],
+            "経過観察が必要です。",
+        )
+        self.assertEqual(
+            japanese_response.data["evidence_items"][0]["content"],
+            "感染の兆候は確認されていません。",
+        )
 
     def test_generate_requires_chat_message(self):
         self.client.force_authenticate(user=self.origin)

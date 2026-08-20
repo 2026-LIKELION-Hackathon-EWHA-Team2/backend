@@ -941,6 +941,34 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         # 완료 확인은 이후 편집에도 유지되므로 재검토 단계가 없습니다.
         return False
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+
+        if request is None:
+            return data
+
+        language = request.user.preferred_language
+        if language not in {"ko", "ja"}:
+            language = "ko"
+
+        localized_content = instance.localized_content or {}
+        localized = (
+            localized_content.get(language)
+            or localized_content.get("ko")
+            or {}
+        )
+        data["judgment_draft"] = localized.get(
+            "judgment_draft",
+            data["judgment_draft"],
+        )
+        data["evidence_items"] = localized.get(
+            "evidence_items",
+            data["evidence_items"],
+        )
+        data["display_language"] = language
+        return data
+
 
 class CaseAgreementRevisionSerializer(
     serializers.ModelSerializer
