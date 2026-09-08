@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from accounts.serializers import MedicalSpecialtySerializer
 from accounts.models import HospitalProfile
+from accounts.fields import CountryCodeField
 
 from .models import (
     HospitalMatchRequest,
@@ -84,8 +85,7 @@ class HospitalMatchRequestSerializer(
         read_only=True,
     )
 
-    search_country = serializers.CharField(
-        max_length=50,
+    search_country = CountryCodeField(
         required=False,
     )
 
