@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Max
 
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -29,14 +29,10 @@ from .services import (
     get_collaboration_count,
 )
 
-
-def _japan_hospitals():
+def _network_hospitals():
     return (
         HospitalProfile.objects
-        .filter(
-            Q(country__iexact="JP")
-            | Q(country__iexact="JAPAN")
-        )
+        .filter(country__in=["JP", "US", "CN"])
         .select_related("user")
         .prefetch_related("specialties")
     )
@@ -62,7 +58,7 @@ class NetworkHospitalListView(APIView):
             )
 
         hospitals = []
-        for hospital in _japan_hospitals():
+        for hospital in _network_hospitals():
             distance_km = None
             if (
                 patient.latitude is not None
@@ -118,7 +114,7 @@ class NetworkHospitalDetailView(APIView):
             )
 
         try:
-            hospital = _japan_hospitals().get(hospital_id=hospital_id)
+            hospital = _network_hospitals().get(hospital_id=hospital_id)
         except HospitalProfile.DoesNotExist:
             return Response(
                 {"detail": "네트워크 병원을 찾을 수 없습니다."},
@@ -180,7 +176,7 @@ class NetworkHospitalSelectView(APIView):
             )
 
         try:
-            hospital = _japan_hospitals().get(hospital_id=hospital_id)
+            hospital = _network_hospitals().get(hospital_id=hospital_id)
         except HospitalProfile.DoesNotExist:
             return Response(
                 {"detail": "네트워크 병원을 찾을 수 없습니다."},
@@ -213,7 +209,7 @@ class NetworkHospitalSelectView(APIView):
                 symptom_case=symptom_case,
                 patient=patient,
                 location_source=HospitalMatchRequest.LocationSource.PROFILE,
-                search_country="JP",
+                search_country=hospital.country,
                 search_city=patient.city,
                 search_address=patient.address,
                 search_latitude=patient.latitude,
@@ -277,7 +273,7 @@ class NetworkHospitalSelectView(APIView):
         match_request.recommendations.update(is_selected=False)
         recommendation.is_selected = True
         recommendation.save(update_fields=["is_selected"])
-
+        match_request.search_country = hospital.country
         match_request.status = HospitalMatchRequest.Status.SELECTED
         match_request.personal_information_provision_agreed = False
         match_request.information_items_purpose_confirmed = False

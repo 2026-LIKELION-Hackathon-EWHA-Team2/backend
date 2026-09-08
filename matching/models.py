@@ -3,6 +3,7 @@ from django.db import models
 from accounts.models import (
     HospitalProfile,
     PatientProfile,
+    COUNTRY_CHOICES,
 )
 from accounts.specialties import SpecialtyCode
 
@@ -71,7 +72,8 @@ class HospitalMatchRequest(models.Model):
     )
 
     search_country = models.CharField(
-        max_length=50,
+        max_length=2,
+        choices=COUNTRY_CHOICES,
     )
 
     search_city = models.CharField(

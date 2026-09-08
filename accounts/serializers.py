@@ -22,6 +22,8 @@ from .specialties import (
     normalize_specialty_name,
 )
 
+from .fields import CountryCodeField
+
 
 # =========================================================
 # 환자 프로필
@@ -29,6 +31,12 @@ from .specialties import (
 
 
 class PatientProfileSerializer(serializers.ModelSerializer):
+    residence_country = CountryCodeField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     name = serializers.CharField(
         source="user.name",
         read_only=True,
@@ -203,6 +211,8 @@ class HospitalSignUpSpecialtySerializer(serializers.Serializer):
 
 
 class HospitalProfileSerializer(serializers.ModelSerializer):
+    country = CountryCodeField()
+
     name = serializers.CharField(
         source="user.name",
         read_only=True,
@@ -457,8 +467,7 @@ class HospitalSignUpSerializer(
         write_only=True,
     )
 
-    country = serializers.CharField(
-        max_length=50,
+    country = CountryCodeField(
         write_only=True,
     )
 

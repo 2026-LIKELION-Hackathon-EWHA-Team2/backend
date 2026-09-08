@@ -1,6 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-
+from .countries import COUNTRY_CHOICES
 from .specialties import SpecialtyCode
 
 
@@ -118,7 +118,8 @@ class PatientProfile(models.Model):
     )
 
     residence_country = models.CharField(
-        max_length=50,
+        max_length=2,
+        choices=COUNTRY_CHOICES,
         null=True,
         blank=True,
     )
@@ -147,7 +148,8 @@ class HospitalProfile(models.Model):
     )
 
     country = models.CharField(
-        max_length=50,
+        max_length=2,
+        choices=COUNTRY_CHOICES,
     )
 
     city = models.CharField(
