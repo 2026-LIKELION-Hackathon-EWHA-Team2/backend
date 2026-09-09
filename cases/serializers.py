@@ -1149,8 +1149,13 @@ class CaseAgreementSerializer(serializers.ModelSerializer):
         )
 
     def get_requires_re_review(self, obj):
-        # 완료 확인은 이후 편집에도 유지되므로 재검토 단계가 없습니다.
-        return False
+        return (
+            obj.status == CaseAgreement.Status.IN_REVIEW
+            and any(
+                review.reviewed_version != obj.version
+                for review in obj.reviews.all()
+            )
+        )
 
     def get_opinion_content(self, obj):
         request = self.context.get("request")
