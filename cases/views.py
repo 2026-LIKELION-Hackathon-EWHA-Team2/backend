@@ -1090,13 +1090,6 @@ class CaseAgreementDetailView(APIView):
                 **save_values,
             )
 
-            # 먼저 완료한 병원의 확인은 이후 편집에도 유효합니다.
-            # 따라서 두 번째 병원이 최종 완료하면 재검토 없이
-            # 곧바로 최종 합의가 됩니다.
-            agreement.reviews.update(
-                reviewed_version=agreement.version,
-            )
-
         response_data = CaseAgreementSerializer(
             agreement,
             context={"request": request},

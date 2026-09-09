@@ -1,8 +1,10 @@
 import json
 from datetime import date, timedelta
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 from django.urls import reverse
@@ -17,6 +19,7 @@ from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
 from .models import (
     CaseAgreement,
     CaseAgreementReview,
+    CaseAgreementRevision,
     CaseChatMessage,
     CaseChatMessageTranslation,
     CaseChatReadState,
@@ -1887,7 +1890,7 @@ class CaseAgreementAPITests(APITestCase):
             status.HTTP_404_NOT_FOUND,
         )
 
-    def test_first_completion_remains_valid_after_both_hospitals_edit(self):
+    def test_edit_requires_each_hospital_to_review_the_new_version(self):
         self.create_agreement()
 
         first_review = self.client.post(self.review_url, format="json")
@@ -1896,30 +1899,98 @@ class CaseAgreementAPITests(APITestCase):
             CaseAgreement.Status.IN_REVIEW,
         )
 
-        first_edit = self.client.patch(
-            self.detail_url,
-            {"judgment_draft": "첫 번째 병원의 추가 수정"},
-            format="json",
-        )
-        self.assertFalse(first_edit.data["requires_re_review"])
-        self.assertTrue(first_edit.data["reviews"][0]["is_current_version"])
-
         self.client.force_authenticate(user=self.partner)
         second_edit = self.client.patch(
             self.detail_url,
             {"additional_opinion": "두 번째 병원의 최종 수정"},
             format="json",
         )
-        self.assertFalse(second_edit.data["requires_re_review"])
+        self.assertEqual(second_edit.data["version"], 2)
+        self.assertTrue(second_edit.data["requires_re_review"])
         self.assertEqual(len(second_edit.data["reviews"]), 1)
-        self.assertTrue(second_edit.data["reviews"][0]["is_current_version"])
+        self.assertEqual(second_edit.data["reviews"][0]["reviewed_version"], 1)
+        self.assertFalse(second_edit.data["reviews"][0]["is_current_version"])
+        self.assertFalse(second_edit.data["my_review_completed"])
+        self.assertFalse(second_edit.data["counterpart_review_completed"])
+        self.assertEqual(second_edit.data["primary_action"]["code"], "REVIEW")
+
+        self.client.force_authenticate(user=self.origin)
+        first_hospital_response = self.client.get(self.detail_url)
+        self.assertEqual(
+            first_hospital_response.data["reviews"][0]["reviewed_version"],
+            1,
+        )
+        self.assertFalse(
+            first_hospital_response.data["reviews"][0]["is_current_version"]
+        )
+        self.assertTrue(first_hospital_response.data["requires_re_review"])
+        self.assertFalse(first_hospital_response.data["my_review_completed"])
+        self.assertEqual(
+            first_hospital_response.data["primary_action"]["code"],
+            "REVIEW",
+        )
+
+        self.client.force_authenticate(user=self.partner)
+        second_review = self.client.post(self.review_url, format="json")
+        self.assertEqual(
+            second_review.data["status"],
+            CaseAgreement.Status.IN_REVIEW,
+        )
+        self.assertTrue(second_review.data["my_review_completed"])
+        self.assertFalse(second_review.data["all_reviews_completed"])
+
+        self.client.force_authenticate(user=self.origin)
+        before_first_re_review = self.client.get(self.detail_url)
+        self.assertFalse(before_first_re_review.data["my_review_completed"])
+        self.assertTrue(
+            before_first_re_review.data["counterpart_review_completed"]
+        )
+        self.assertEqual(
+            before_first_re_review.data["primary_action"]["code"],
+            "FINALIZE",
+        )
 
         final_response = self.client.post(self.review_url, format="json")
         self.assertEqual(
             final_response.data["status"],
             CaseAgreement.Status.FINAL,
         )
+        self.assertTrue(final_response.data["all_reviews_completed"])
         self.assertFalse(final_response.data["can_edit"])
+
+    def test_reviewed_version_data_migration_restores_original_version(self):
+        self.create_agreement()
+        agreement = CaseAgreement.objects.get(chat_room=self.chat_room)
+        corrupted_review = CaseAgreementReview.objects.create(
+            agreement=agreement,
+            hospital=self.origin,
+            reviewed_version=2,
+        )
+        revision = CaseAgreementRevision.objects.create(
+            agreement=agreement,
+            version=1,
+            previous_data={},
+            changed_fields=["additional_opinion"],
+            edited_by=self.partner,
+        )
+        review_time = timezone.now() - timedelta(minutes=1)
+        revision_time = timezone.now()
+        CaseAgreementReview.objects.filter(pk=corrupted_review.pk).update(
+            reviewed_at=review_time,
+        )
+        CaseAgreementRevision.objects.filter(pk=revision.pk).update(
+            edited_at=revision_time,
+        )
+        agreement.version = 2
+        agreement.save(update_fields=["version", "updated_at"])
+
+        migration = import_module(
+            "cases.migrations.0019_restore_agreement_reviewed_versions"
+        )
+        migration.restore_reviewed_versions(apps, None)
+
+        corrupted_review.refresh_from_db()
+        self.assertEqual(corrupted_review.reviewed_version, 1)
 
     def test_final_agreement_cannot_be_edited_or_reopened(self):
         self.create_agreement()
