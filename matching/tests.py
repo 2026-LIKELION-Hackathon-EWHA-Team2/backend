@@ -231,7 +231,7 @@ class NetworkHospitalTests(APITestCase):
         )
         self.near_hospital = HospitalProfile.objects.create(
             user=near_user,
-            country="JAPAN",
+            country="JP",
             city="Tokyo",
             address="Shibuya",
             latitude="35.6763000",

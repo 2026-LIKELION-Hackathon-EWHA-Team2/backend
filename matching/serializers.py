@@ -14,6 +14,10 @@ from .models import (
 class HospitalSimpleSerializer(
     serializers.ModelSerializer
 ):
+    preferred_language = serializers.CharField(
+        source="user.preferred_language",
+        read_only=True,
+    )
     name = serializers.CharField(
         source="user.name",
         read_only=True,
@@ -38,6 +42,7 @@ class HospitalSimpleSerializer(
             "address",
 
             "hospital_type",
+            "preferred_language",
 
             "latitude",
             "longitude",

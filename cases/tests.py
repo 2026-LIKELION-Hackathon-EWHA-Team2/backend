@@ -2056,20 +2056,19 @@ class CaseTransferFlowTests(APITestCase):
             country="KR",
             city="Seoul",
             address="Seoul",
-            language_code="ko",
         )
         self.partner = User.objects.create_user(
             username="transfer-partner",
             password="TestPassword!2026",
             name="Partner Hospital",
             user_type=User.UserType.HOSPITAL,
+            preferred_language="ja",
         )
         self.partner_profile = HospitalProfile.objects.create(
             user=self.partner,
             country="JP",
             city="Tokyo",
             address="Tokyo",
-            language_code="ja",
         )
         self.symptom_case = PatientSymptomCase.objects.create(
             patient=self.patient_profile,
