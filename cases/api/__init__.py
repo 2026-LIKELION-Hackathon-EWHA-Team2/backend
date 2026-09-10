@@ -1,25 +1,25 @@
-"""Compatibility imports for the function-specific API modules.
-
-New code should import views from ``cases.api``.  This module remains so
-existing internal imports keep working while the API modules are split.
-"""
-
-from .api import (
+from .agreements import (
     CaseAgreementDetailView,
     CaseAgreementGenerateView,
     CaseAgreementReviewView,
     CaseAgreementRevisionListView,
+)
+from .chat import (
     CaseChatMessageListCreateView,
     CaseChatRoomListView,
     CaseChatRoomReadView,
+)
+from .collaborations import (
     CaseCollaborationRequestAcceptView,
     CaseCollaborationRequestDetailView,
     CaseCollaborationRequestListView,
+    HospitalDashboardView,
+)
+from .transfers import (
     CaseTransferDetailView,
     CaseTransferListCreateView,
     CaseTransferReviewView,
     CaseTransferSendView,
-    HospitalDashboardView,
     MedicalCaseDetailView,
     MedicalCaseListView,
     PartnerCaseTransferDetailView,

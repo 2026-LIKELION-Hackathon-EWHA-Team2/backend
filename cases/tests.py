@@ -1344,13 +1344,13 @@ class CaseChatRoomListAndReadTests(APITestCase):
 class CaseAgreementAPITests(APITestCase):
     def setUp(self):
         opinion_patcher = patch(
-            "cases.views.translate_case_agreement_opinion",
+            "cases.api.agreements.translate_case_agreement_opinion",
             side_effect=self.build_opinion_translations,
         )
         self.translate_opinion = opinion_patcher.start()
         self.addCleanup(opinion_patcher.stop)
         content_patcher = patch(
-            "cases.views.translate_case_agreement_content",
+            "cases.api.agreements.translate_case_agreement_content",
             side_effect=self.build_agreement_translations,
         )
         self.translate_agreement_content = content_patcher.start()
@@ -1609,7 +1609,7 @@ class CaseAgreementAPITests(APITestCase):
             CaseAgreement.OpinionTranslationStatus.FAILED,
         )
 
-    @patch("cases.views.generate_case_agreement")
+    @patch("cases.api.agreements.generate_case_agreement")
     def test_ai_does_not_write_additional_opinion(self, generate):
         CaseChatMessage.objects.create(
             chat_room=self.chat_room,
@@ -1629,7 +1629,7 @@ class CaseAgreementAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["additional_opinion"], "")
 
-    @patch("cases.views.generate_case_agreement")
+    @patch("cases.api.agreements.generate_case_agreement")
     def test_ai_agreement_uses_viewer_preferred_language(self, generate):
         CaseChatMessage.objects.create(
             chat_room=self.chat_room,
@@ -1745,7 +1745,7 @@ class CaseAgreementAPITests(APITestCase):
             "경과 관찰이 필요합니다.",
         )
 
-    @patch("cases.views.generate_case_agreement")
+    @patch("cases.api.agreements.generate_case_agreement")
     def test_generate_allows_case_only_draft_without_chat(self, generate):
         generate.return_value = {
             "judgment_draft": (
@@ -1784,7 +1784,7 @@ class CaseAgreementAPITests(APITestCase):
             {"detail": "이미 생성된 협진 합의안이 있습니다."},
         )
 
-    @patch("cases.views.generate_case_agreement")
+    @patch("cases.api.agreements.generate_case_agreement")
     def test_generate_returns_bad_gateway_when_ai_fails(self, generate):
         CaseChatMessage.objects.create(
             chat_room=self.chat_room,
@@ -1803,7 +1803,7 @@ class CaseAgreementAPITests(APITestCase):
             {"detail": "AI 합의안 초안을 생성하지 못했습니다."},
         )
 
-    @patch("cases.views.generate_case_agreement")
+    @patch("cases.api.agreements.generate_case_agreement")
     def test_generate_returns_bad_gateway_for_invalid_ai_data(
         self,
         generate,
@@ -2144,11 +2144,11 @@ class CaseTransferFlowTests(APITestCase):
     def create_transfer(self):
         with (
             patch(
-                "cases.views.analyze_diagnosis_document",
+                "cases.api.transfers.analyze_diagnosis_document",
                 return_value=self.document_result(),
             ),
             patch(
-                "cases.views.generate_patient_symptom_translation_summary",
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
                 return_value="額の腫れと痛みが報告されています。",
             ),
         ):
@@ -2182,11 +2182,11 @@ class CaseTransferFlowTests(APITestCase):
 
         with (
             patch(
-                "cases.views.analyze_diagnosis_document",
+                "cases.api.transfers.analyze_diagnosis_document",
                 return_value=self.document_result(),
             ),
             patch(
-                "cases.views.generate_patient_symptom_translation_summary",
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
                 return_value="Translated summary",
             ),
         ):
@@ -2214,11 +2214,11 @@ class CaseTransferFlowTests(APITestCase):
 
         with (
             patch(
-                "cases.views.analyze_diagnosis_document",
+                "cases.api.transfers.analyze_diagnosis_document",
                 return_value=self.document_result(),
             ),
             patch(
-                "cases.views.generate_patient_symptom_translation_summary",
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
                 return_value="Translated summary",
             ),
         ):
@@ -2479,7 +2479,7 @@ class CaseTransferFlowTests(APITestCase):
         self.assertFalse(CaseCollaborationRequest.objects.exists())
 
     @patch(
-        "cases.views.translate_case_agreement_opinion",
+        "cases.api.agreements.translate_case_agreement_opinion",
         return_value={
             "ko": "증상 악화 시 내원 바랍니다.",
             "en": "Please visit the hospital if symptoms worsen.",
