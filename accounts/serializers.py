@@ -212,6 +212,37 @@ class HospitalSignUpSpecialtySerializer(serializers.Serializer):
 
 class HospitalProfileSerializer(serializers.ModelSerializer):
     country = CountryCodeField()
+    preferred_language = serializers.ChoiceField(
+        source="user.preferred_language",
+        choices=User.Language.choices,
+        required=False,
+    )
+    # Compatibility alias: both API names use User.preferred_language.
+    language_code = serializers.ChoiceField(
+        source="user.preferred_language",
+        choices=User.Language.choices,
+        required=False,
+    )
+
+    def to_internal_value(self, data):
+        if (
+            "preferred_language" in data
+            and "language_code" in data
+            and data["preferred_language"] != data["language_code"]
+        ):
+            raise serializers.ValidationError({
+                "language_code": "preferred_language와 동일한 값을 입력해주세요."
+            })
+        return super().to_internal_value(data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop("user", {})
+        profile = super().update(instance, validated_data)
+        if "preferred_language" in user_data:
+            instance.user.preferred_language = user_data["preferred_language"]
+            instance.user.save(update_fields=("preferred_language",))
+        return profile
 
     name = serializers.CharField(
         source="user.name",
@@ -240,6 +271,7 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
             "city",
             "address",
             "hospital_type",
+            "preferred_language",
             "language_code",
             "latitude",
             "longitude",
