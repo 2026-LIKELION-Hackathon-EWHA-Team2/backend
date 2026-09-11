@@ -1,9 +1,13 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 
 from accounts.serializers import MedicalSpecialtySerializer
 from accounts.models import HospitalProfile
-from accounts.fields import CountryCodeField
+from accounts.fields import (
+    CountryCodeField, LatitudeField, LongitudeField, validate_api_coordinates,
+)
+from .validation import WEIGHT_FIELDS, validate_weights
 
 from .models import (
     HospitalMatchRequest,
@@ -108,19 +112,9 @@ class HospitalMatchRequestSerializer(
             allow_null=True,
         )
 
-    search_latitude = serializers.DecimalField(
-            max_digits=10,
-            decimal_places=7,
-            required=False,
-            allow_null=True,
-        )
+    search_latitude = LatitudeField(required=False, allow_null=True)
 
-    search_longitude = serializers.DecimalField(
-            max_digits=10,
-            decimal_places=7,
-            required=False,
-            allow_null=True,
-        )
+    search_longitude = LongitudeField(required=False, allow_null=True)
 
     class Meta:
         model = HospitalMatchRequest
@@ -176,41 +170,21 @@ class HospitalMatchRequestSerializer(
 
     def validate(self, attrs):
 
-        specialty_weight = attrs.get(
-            "specialty_weight",
-            50,
-        )
-
-        distance_weight = attrs.get(
-            "distance_weight",
-            50,
-        )
-
-        collaboration_weight = attrs.get(
-            "collaboration_weight",
-            50,
-        )
-
         weights = [
-            specialty_weight,
-            distance_weight,
-            collaboration_weight,
+            attrs.get(field, getattr(
+                self.instance, field,
+                HospitalMatchRequest._meta.get_field(field).get_default(),
+            ))
+            for field in WEIGHT_FIELDS
         ]
-
-        for weight in weights:
-            if not 0 <= weight <= 100:
-                raise serializers.ValidationError(
-                    "가중치는 0~100 사이여야 합니다."
-                )
-
-        if sum(weights) == 0:
-            raise serializers.ValidationError(
-                "최소 한 개의 추천 기준을 선택해야 합니다."
-            )
+        try:
+            validate_weights(weights)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.message_dict) from error
 
         location_source = attrs.get(
             "location_source",
-            HospitalMatchRequest.LocationSource.PROFILE,
+            getattr(self.instance, "location_source", HospitalMatchRequest.LocationSource.PROFILE),
         )
 
         if location_source == HospitalMatchRequest.LocationSource.PROFILE:
@@ -252,6 +226,10 @@ class HospitalMatchRequestSerializer(
             attrs["search_longitude"] = patient.longitude
 
         elif location_source == HospitalMatchRequest.LocationSource.CUSTOM:
+            # Partial updates validate the final stored search location.
+            if self.instance is not None:
+                for field in ("search_country", "search_latitude", "search_longitude"):
+                    attrs.setdefault(field, getattr(self.instance, field))
             custom_errors = {}
 
             if not attrs.get("search_country"):
@@ -273,6 +251,13 @@ class HospitalMatchRequestSerializer(
                 raise serializers.ValidationError(
                     custom_errors
                 )
+        latitude, longitude = validate_api_coordinates(
+            attrs.get("search_latitude"),
+            attrs.get("search_longitude"),
+            names=("search_latitude", "search_longitude"),
+        )
+        attrs["search_latitude"] = latitude
+        attrs["search_longitude"] = longitude
         return attrs
 
 

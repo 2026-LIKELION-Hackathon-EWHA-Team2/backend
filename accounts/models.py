@@ -2,6 +2,9 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from .countries import COUNTRY_CHOICES
 from .specialties import SpecialtyCode
+from .validators import (
+    coordinate_constraint, validate_latitude, validate_longitude,
+)
 
 
 class User(AbstractUser):
@@ -92,6 +95,7 @@ class PatientProfile(models.Model):
     )
 
     latitude = models.DecimalField(
+        validators=[validate_latitude],
         max_digits=10,
         decimal_places=7,
         null=True,
@@ -99,6 +103,7 @@ class PatientProfile(models.Model):
     )
 
     longitude = models.DecimalField(
+        validators=[validate_longitude],
         max_digits=10,
         decimal_places=7,
         null=True,
@@ -131,6 +136,11 @@ class PatientProfile(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True,
     )
+
+    class Meta:
+        constraints = [
+            coordinate_constraint("patientprofile_coordinates_valid", optional=True),
+        ]
 
     def __str__(self):
         return self.user.name
@@ -167,6 +177,7 @@ class HospitalProfile(models.Model):
     )
 
     latitude = models.DecimalField(
+        validators=[validate_latitude],
         max_digits=10,
         decimal_places=7,
         null=True,
@@ -174,6 +185,7 @@ class HospitalProfile(models.Model):
     )
 
     longitude = models.DecimalField(
+        validators=[validate_longitude],
         max_digits=10,
         decimal_places=7,
         null=True,
@@ -216,6 +228,11 @@ class HospitalProfile(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True,
     )
+
+    class Meta:
+        constraints = [
+            coordinate_constraint("hospitalprofile_coordinates_valid", optional=True),
+        ]
 
     def __str__(self):
         return self.user.name
