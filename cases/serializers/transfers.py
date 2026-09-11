@@ -1,0 +1,827 @@
+from django.utils import timezone
+from rest_framework import serializers
+
+from accounts.models import User
+from matching.models import (
+    HospitalMatchRequest,
+    HospitalRecommendation,
+)
+from selfsymptoms.models import PatientSymptomCase
+
+from ..models import (
+    CaseTransfer,
+    CaseIngredient,
+    CaseCollaborationRequest,
+    MedicalCase,
+)
+from .agreements import (
+    get_agreement_language_content,
+    get_agreement_opinion_content,
+)
+
+
+ADVERSE_EFFECT_LABELS = {
+    "ko": {
+        "SWELLING": "부종",
+        "INFLAMMATION": "염증",
+        "PAIN": "통증",
+        "REDNESS": "붉어짐",
+        "INFECTION": "감염 의심",
+        "PIGMENTATION": "색소침착",
+        "BRUISING_BLEEDING": "멍/출혈",
+    },
+    "en": {
+        "SWELLING": "Swelling",
+        "INFLAMMATION": "Inflammation",
+        "PAIN": "Pain",
+        "REDNESS": "Redness",
+        "INFECTION": "Suspected infection",
+        "PIGMENTATION": "Pigmentation",
+        "BRUISING_BLEEDING": "Bruising/bleeding",
+    },
+    "ja": {
+        "SWELLING": "腫れ",
+        "INFLAMMATION": "炎症",
+        "PAIN": "痛み",
+        "REDNESS": "発赤",
+        "INFECTION": "感染の疑い",
+        "PIGMENTATION": "色素沈着",
+        "BRUISING_BLEEDING": "あざ/出血",
+    },
+    "zh": {
+        "SWELLING": "肿胀",
+        "INFLAMMATION": "炎症",
+        "PAIN": "疼痛",
+        "REDNESS": "发红",
+        "INFECTION": "疑似感染",
+        "PIGMENTATION": "色素沉着",
+        "BRUISING_BLEEDING": "淤青/出血",
+    },
+}
+
+
+def format_medical_case_number(medical_case):
+    return (
+        f"CASE-{medical_case.created_at.year}-"
+        f"{medical_case.id:06d}"
+    )
+
+
+class CaseIngredientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseIngredient
+        fields = (
+            "id",
+            "ingredient_name",
+        )
+
+
+class MedicalCaseDetailSerializer(serializers.ModelSerializer):
+    patient_id = serializers.IntegerField(
+        source="patient.id",
+        read_only=True,
+    )
+
+    patient_name = serializers.CharField(
+        source="patient.name",
+        read_only=True,
+    )
+
+    origin_hospital_name = serializers.CharField(
+        source="origin_hospital.name",
+        read_only=True,
+    )
+
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+
+    ingredients = CaseIngredientSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = MedicalCase
+        fields = (
+            "id",
+            "patient_id",
+            "patient_name",
+            "origin_hospital_name",
+            "partner_hospital_name",
+            "procedure_name",
+            "procedure_area",
+            "procedure_date",
+            "ingredients",
+            "clinician_note",
+            "ai_summary",
+            "status",
+            "transferred_at",
+        )
+
+
+class PatientProcedureHistoryListSerializer(
+    serializers.ModelSerializer
+):
+    medical_case_id = serializers.IntegerField(
+        source="id",
+        read_only=True,
+    )
+    symptom_case_id = serializers.SerializerMethodField()
+    case_number = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    procedure_hospital_name = serializers.CharField(
+        source="origin_hospital.name",
+        read_only=True,
+    )
+    procedure_hospital_country = serializers.CharField(
+        source="origin_hospital.hospital_profile.country",
+        read_only=True,
+    )
+    procedure_hospital_city = serializers.CharField(
+        source="origin_hospital.hospital_profile.city",
+        read_only=True,
+    )
+    finalized_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = MedicalCase
+        fields = (
+            "medical_case_id",
+            "symptom_case_id",
+            "case_number",
+            "status",
+            "procedure_name",
+            "procedure_area",
+            "procedure_date",
+            "procedure_hospital_name",
+            "procedure_hospital_country",
+            "procedure_hospital_city",
+            "finalized_at",
+        )
+
+    @staticmethod
+    def get_completed_transfer(obj):
+        transfers = getattr(obj, "completed_case_transfers", [])
+        return transfers[0] if transfers else None
+
+    def get_symptom_case_id(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        return transfer.symptom_case_id if transfer else None
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj)
+
+    def get_status(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        if transfer is None:
+            return None
+        return transfer.symptom_case.status
+
+
+class PatientProcedureHistoryDetailSerializer(
+    serializers.ModelSerializer
+):
+    medical_case_id = serializers.IntegerField(
+        source="id",
+        read_only=True,
+    )
+    symptom_case_id = serializers.SerializerMethodField()
+    case_number = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    procedure = serializers.SerializerMethodField()
+    collaboration = serializers.SerializerMethodField()
+    final_agreement = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MedicalCase
+        fields = (
+            "medical_case_id",
+            "symptom_case_id",
+            "case_number",
+            "status",
+            "procedure",
+            "collaboration",
+            "final_agreement",
+        )
+
+    @staticmethod
+    def get_completed_transfer(obj):
+        transfers = getattr(obj, "completed_case_transfers", [])
+        return transfers[0] if transfers else None
+
+    @staticmethod
+    def get_final_chat_room(obj):
+        chat_rooms = getattr(obj, "final_agreement_chat_rooms", [])
+        return chat_rooms[0] if chat_rooms else None
+
+    def get_symptom_case_id(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        return transfer.symptom_case_id if transfer else None
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj)
+
+    def get_status(self, obj):
+        transfer = self.get_completed_transfer(obj)
+        if transfer is None:
+            return None
+        return transfer.symptom_case.status
+
+    def get_procedure(self, obj):
+        hospital_profile = obj.origin_hospital.hospital_profile
+        return {
+            "name": obj.procedure_name,
+            "area": obj.procedure_area,
+            "date": serializers.DateField().to_representation(
+                obj.procedure_date
+            ),
+            "hospital_name": obj.origin_hospital.name,
+            "hospital_country": hospital_profile.country,
+            "hospital_city": hospital_profile.city,
+        }
+
+    def get_collaboration(self, obj):
+        chat_room = self.get_final_chat_room(obj)
+        agreement = chat_room.agreement
+        return {
+            "partner_hospital_name": chat_room.partner_hospital.name,
+            "finalized_at": (
+                serializers.DateTimeField().to_representation(
+                    agreement.finalized_at
+                )
+            ),
+        }
+
+    def get_final_agreement(self, obj):
+        chat_room = self.get_final_chat_room(obj)
+        agreement = chat_room.agreement
+        request = self.context.get("request")
+        requested_language = (
+            request.user.preferred_language
+            if request is not None
+            else "ko"
+        )
+        localized = get_agreement_language_content(
+            agreement,
+            requested_language,
+        )
+        opinion = get_agreement_opinion_content(
+            agreement,
+            requested_language,
+        )
+        return {
+            "agreement_id": agreement.id,
+            "version": agreement.version,
+            "status": agreement.status,
+            "judgment_draft": localized["judgment_draft"],
+            "evidence_items": localized["evidence_items"],
+            "additional_opinion": opinion["display_content"],
+            "additional_opinion_original_content": opinion[
+                "original_content"
+            ],
+            "additional_opinion_source_language": opinion[
+                "source_language"
+            ],
+            "additional_opinion_translated_content": opinion[
+                "translated_content"
+            ],
+            "additional_opinion_translation_status": opinion[
+                "translation_status"
+            ],
+            "additional_opinion_display_content": opinion[
+                "display_content"
+            ],
+            "additional_opinion_display_language": opinion[
+                "display_language"
+            ],
+            "display_language": localized["display_language"],
+            "finalized_at": (
+                serializers.DateTimeField().to_representation(
+                    agreement.finalized_at
+                )
+            ),
+            "reviews": [
+                {
+                    "hospital_id": review.hospital_id,
+                    "hospital_name": review.hospital.name,
+                    "reviewed_at": (
+                        serializers.DateTimeField().to_representation(
+                            review.reviewed_at
+                        )
+                    ),
+                }
+                for review in agreement.reviews.all()
+            ],
+        }
+
+
+class CaseTransferCreateSerializer(serializers.ModelSerializer):
+    symptom_case_id = serializers.PrimaryKeyRelatedField(
+        source="symptom_case",
+        queryset=PatientSymptomCase.objects.select_related(
+            "patient__user",
+            "diagnosed_hospital__user",
+        ),
+    )
+    recommendation_id = serializers.PrimaryKeyRelatedField(
+        source="recommendation",
+        queryset=HospitalRecommendation.objects.select_related(
+            "hospital__user",
+            "match_request__patient__user",
+            "match_request__symptom_case",
+        ),
+    )
+
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "id",
+            "symptom_case_id",
+            "recommendation_id",
+            "patient_name",
+            "patient_gender",
+            "patient_birth_date",
+        )
+        read_only_fields = ("id",)
+
+        extra_kwargs = {
+            "patient_gender": {
+                "required": False,
+                "allow_null": True,
+            },
+            "patient_birth_date": {
+                "required": False,
+                "allow_null": True,
+            },
+        }
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        symptom_case = attrs["symptom_case"]
+        recommendation = attrs["recommendation"]
+        partner_hospital = recommendation.hospital.user
+
+        if request.user.user_type != User.UserType.PATIENT:
+            raise serializers.ValidationError(
+                "환자만 전송 건을 생성할 수 있습니다."
+            )
+
+        if symptom_case.patient.user_id != request.user.id:
+            raise serializers.ValidationError(
+                "본인의 증상 케이스만 선택할 수 있습니다."
+            )
+
+        if (
+            symptom_case.status
+            != PatientSymptomCase.Status.HOSPITAL_SELECTED
+        ):
+            raise serializers.ValidationError(
+                "병원 선택이 완료된 증상 케이스만 전송할 수 있습니다."
+            )
+
+        if (
+            recommendation.match_request.symptom_case_id
+            != symptom_case.symptom_case_id
+            or recommendation.match_request.patient.user_id
+            != request.user.id
+        ):
+            raise serializers.ValidationError(
+                {
+                    "recommendation_id": (
+                        "해당 증상 케이스의 추천 결과가 아닙니다."
+                    )
+                }
+            )
+
+        if (
+            not recommendation.is_selected
+            or recommendation.match_request.status
+            != HospitalMatchRequest.Status.SELECTED
+        ):
+            raise serializers.ValidationError(
+                {
+                    "recommendation_id": (
+                        "환자가 선택한 추천 병원만 전송할 수 있습니다."
+                    )
+                }
+            )
+
+        match_request = recommendation.match_request
+        if (
+            match_request.agreed_at is None
+            or not all([
+                match_request.personal_information_provision_agreed,
+                match_request.information_items_purpose_confirmed,
+                match_request.medical_consultation_use_agreed,
+                match_request.withdrawal_right_confirmed,
+            ])
+        ):
+            raise serializers.ValidationError(
+                "병원 매칭 동의를 먼저 완료해 주세요."
+            )
+
+        if CaseTransfer.objects.filter(symptom_case=symptom_case).exists():
+            raise serializers.ValidationError(
+                "해당 증상 케이스의 전송 건이 이미 존재합니다."
+            )
+
+        if not symptom_case.diagnosis_document:
+            raise serializers.ValidationError(
+                "진단서가 등록된 증상 케이스만 전송할 수 있습니다."
+            )
+
+        if symptom_case.diagnosed_hospital is None:
+            raise serializers.ValidationError(
+                "시술받은 병원을 먼저 선택해주세요."
+            )
+
+        if (
+            symptom_case.diagnosed_hospital.user_id
+            == partner_hospital.id
+        ):
+            raise serializers.ValidationError(
+                "시술 병원과 협력 병원은 달라야 합니다."
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        recommendation = validated_data["recommendation"]
+        partner_hospital = recommendation.hospital.user
+        validated_data.setdefault(
+            "status",
+            CaseTransfer.Status.PROCESSING,
+        )
+
+        return CaseTransfer.objects.create(
+            **validated_data,
+            patient=self.context["request"].user,
+            partner_hospital=partner_hospital,
+            target_language=(
+                partner_hospital.preferred_language
+            ),
+        )
+
+
+class CaseTransferDetailSerializer(serializers.ModelSerializer):
+    case_number = serializers.SerializerMethodField()
+    symptom_case_id = serializers.IntegerField(read_only=True)
+    recommendation_id = serializers.IntegerField(read_only=True)
+    medical_case_id = serializers.IntegerField(read_only=True)
+    partner_hospital_id = serializers.IntegerField(read_only=True)
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "id",
+            "case_number",
+            "symptom_case_id",
+            "recommendation_id",
+            "medical_case_id",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "origin_hospital_name",
+            "ai_translation_summary",
+            "patient_name",
+            "patient_gender",
+            "patient_birth_date",
+            "target_language",
+            "structured_data",
+            "processing_error",
+            "adverse_effects",
+            "include_patient_info",
+            "include_procedure_info",
+            "include_adverse_effects",
+            "include_clinician_note",
+            "procedure_medication_agreed",
+            "adverse_effect_clinician_note_agreed",
+            "overseas_ai_processing_agreed",
+            "agreed_at",
+            "collaboration_request_id",
+            "collaboration_request_status",
+            "status",
+            "transferred_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj.medical_case)
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.id
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.status
+            if collaboration_request is not None
+            else None
+        )
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.status != CaseTransfer.Status.PROCESSING_FAILED:
+            data.pop("processing_error", None)
+
+        return data
+
+
+class CaseTransferListSerializer(serializers.ModelSerializer):
+    case_number = serializers.SerializerMethodField()
+    symptom_case_id = serializers.IntegerField(read_only=True)
+    recommendation_id = serializers.IntegerField(read_only=True)
+    medical_case_id = serializers.IntegerField(read_only=True)
+    partner_hospital_id = serializers.IntegerField(read_only=True)
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    procedure_name = serializers.CharField(
+        source="medical_case.procedure_name",
+        read_only=True,
+    )
+    procedure_area = serializers.CharField(
+        source="medical_case.procedure_area",
+        read_only=True,
+    )
+    procedure_date = serializers.DateField(
+        source="medical_case.procedure_date",
+        read_only=True,
+    )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
+
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "id",
+            "case_number",
+            "symptom_case_id",
+            "recommendation_id",
+            "medical_case_id",
+            "patient_name",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "origin_hospital_name",
+            "procedure_name",
+            "procedure_area",
+            "procedure_date",
+            "ai_translation_summary",
+            "status",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj.medical_case)
+
+
+class PartnerCaseTransferSerializer(serializers.ModelSerializer):
+    case_number = serializers.SerializerMethodField()
+    partner_hospital_name = serializers.CharField(
+        source="partner_hospital.name",
+        read_only=True,
+    )
+    origin_hospital_name = serializers.CharField(
+        source="medical_case.origin_hospital.name",
+        read_only=True,
+    )
+    ai_translation_summary = serializers.CharField(
+        source="medical_case.ai_summary",
+        read_only=True,
+    )
+    transmitted_data = serializers.SerializerMethodField()
+    agreements = serializers.SerializerMethodField()
+    collaboration_request_id = serializers.SerializerMethodField()
+    collaboration_request_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "id",
+            "case_number",
+            "symptom_case_id",
+            "recommendation_id",
+            "medical_case_id",
+            "partner_hospital_id",
+            "partner_hospital_name",
+            "origin_hospital_name",
+            "target_language",
+            "ai_translation_summary",
+            "transmitted_data",
+            "agreements",
+            "collaboration_request_id",
+            "collaboration_request_status",
+            "status",
+            "transferred_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_case_number(self, obj):
+        return format_medical_case_number(obj.medical_case)
+
+    def get_collaboration_request(self, obj):
+        try:
+            return obj.medical_case.collaboration_request
+        except CaseCollaborationRequest.DoesNotExist:
+            return None
+
+    def get_collaboration_request_id(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.id
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_collaboration_request_status(self, obj):
+        collaboration_request = self.get_collaboration_request(obj)
+        return (
+            collaboration_request.status
+            if collaboration_request is not None
+            else None
+        )
+
+    def get_transmitted_data(self, obj):
+        display_language = self.context.get(
+            "display_language",
+            obj.target_language,
+        )
+        structured = (obj.translated_data or {}).get(
+            display_language,
+            obj.structured_data or {},
+        )
+        symptoms = dict(
+            structured.get("symptoms") or {}
+        )
+
+        request = self.context.get("request")
+        image_urls = []
+
+        for symptom_image in obj.symptom_case.images.all():
+            if not symptom_image.image:
+                continue
+
+            image_url = symptom_image.image.url
+
+            if request is not None:
+                image_url = request.build_absolute_uri(
+                    image_url
+                )
+
+            image_urls.append(image_url)
+
+        symptoms["images"] = image_urls
+
+        data = {
+            "symptoms": symptoms,
+        }
+
+        if obj.include_patient_info:
+            data["patient_info"] = structured.get(
+                "patient_info",
+                {},
+            )
+
+        if obj.include_procedure_info:
+            data["procedure"] = structured.get("procedure", {})
+            data["ingredients"] = structured.get("ingredients", [])
+
+        if obj.include_adverse_effects:
+            names = ADVERSE_EFFECT_LABELS.get(
+                display_language,
+                ADVERSE_EFFECT_LABELS["en"],
+            )
+            data["adverse_effects"] = [
+                {
+                    "code": effect,
+                    "translated_name": names.get(effect, effect),
+                }
+                for effect in obj.adverse_effects
+            ]
+
+        if obj.include_clinician_note:
+            data["clinician_note"] = structured.get(
+                "clinician_note",
+                "",
+            )
+
+        return data
+
+    def get_agreements(self, obj):
+        return {
+            "procedure_medication": (
+                obj.procedure_medication_agreed
+            ),
+            "adverse_effect_clinician_note": (
+                obj.adverse_effect_clinician_note_agreed
+            ),
+            "overseas_ai_processing": (
+                obj.overseas_ai_processing_agreed
+            ),
+            "agreed_at": obj.agreed_at,
+        }
+
+
+class CaseTransferReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseTransfer
+        fields = (
+            "procedure_medication_agreed",
+            "adverse_effect_clinician_note_agreed",
+            "overseas_ai_processing_agreed",
+        )
+
+    def validate(self, attrs):
+        if self.instance.status != CaseTransfer.Status.REVIEW_REQUIRED:
+            raise serializers.ValidationError(
+                "번역·구조화 완료 후 입력할 수 있습니다."
+            )
+
+        if not all([
+            attrs.get("procedure_medication_agreed", False),
+            attrs.get(
+                "adverse_effect_clinician_note_agreed",
+                False,
+            ),
+            attrs.get("overseas_ai_processing_agreed", False),
+        ]):
+            raise serializers.ValidationError(
+                "필수 동의가 필요합니다."
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+
+        structured_data = instance.structured_data or {}
+        adverse_effects = list(
+            instance.symptom_case.symptom_types.values_list(
+                "symptom_type",
+                flat=True,
+            )
+        )
+
+        instance.adverse_effects = list(
+            dict.fromkeys(adverse_effects)
+        )
+        instance.include_patient_info = bool(
+            structured_data.get("patient_info")
+        )
+        instance.include_procedure_info = bool(
+            structured_data.get("procedure")
+            or structured_data.get("ingredients")
+        )
+        instance.include_adverse_effects = bool(
+            instance.adverse_effects
+        )
+        instance.include_clinician_note = bool(
+            structured_data.get("clinician_note")
+        )
+
+        instance.agreed_at = timezone.now()
+        instance.status = CaseTransfer.Status.READY_TO_TRANSFER
+        instance.save()
+
+        return instance
