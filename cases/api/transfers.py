@@ -1,23 +1,14 @@
 import logging
 from datetime import date
 
-from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from selfsymptoms.models import DiagnosisAnalysis
-
-from ..models import (
-    CaseIngredient,
-    CaseCollaborationRequest,
-    CaseTransfer,
-    MedicalCase,
-)
+from ..models import MedicalCase
 from ..permissions import IsPatient
 from ..selectors.transfer_queries import (
     get_medical_case_detail_queryset,
@@ -33,6 +24,11 @@ from ..selectors.transfer_queries import (
 from ..services import (
     analyze_diagnosis_document,
     generate_patient_symptom_translation_summary,
+)
+from ..services.transfer_service import (
+    create_case_transfer_records,
+    review_case_transfer,
+    send_case_transfer,
 )
 from ..serializers import (
     CaseTransferCreateSerializer,
@@ -331,57 +327,19 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
             "ai_summary": origin_ai_summary,
         }
 
-        with transaction.atomic():
-            DiagnosisAnalysis.objects.update_or_create(
-                symptom_case=symptom_case,
-                defaults={
-                    "extracted_text": document_result[
-                        "extracted_text"
-                    ],
-                    "analysis_result": {
-                        key: value
-                        for key, value in document_result.items()
-                        if key != "extracted_text"
-                    },
-                    "analyzed_at": timezone.now(),
-                },
-            )
-
-            medical_case = MedicalCase.objects.create(
-                patient=request.user,
-                origin_hospital=(
-                    symptom_case.diagnosed_hospital.user
-                ),
-                partner_hospital=partner_hospital,
-                procedure_name=procedure["name"],
-                procedure_area=procedure["area"],
-                procedure_date=procedure_date,
-                clinician_note=document_result["clinician_note"],
-                ai_summary=ai_summary,
-                status=MedicalCase.Status.READY_TO_TRANSFER,
-            )
-
-            CaseIngredient.objects.bulk_create(
-                [
-                    CaseIngredient(
-                        medical_case=medical_case,
-                        ingredient_name=ingredient,
-                    )
-                    for ingredient
-                    in dict.fromkeys(document_result["ingredients"])
-                ]
-            )
-
-            transfer = serializer.save(
-                medical_case=medical_case,
-                structured_data=structured_data,
-                translated_data={
-                    partner_language: structured_data,
-                    origin_language: origin_structured_data,
-                },
-                status=CaseTransfer.Status.REVIEW_REQUIRED,
-                processing_error="",
-            )
+        transfer = create_case_transfer_records(
+            serializer=serializer,
+            patient=request.user,
+            symptom_case=symptom_case,
+            partner_hospital=partner_hospital,
+            procedure_date=procedure_date,
+            document_result=document_result,
+            ai_summary=ai_summary,
+            structured_data=structured_data,
+            origin_structured_data=origin_structured_data,
+            partner_language=partner_language,
+            origin_language=origin_language,
+        )
 
         return Response(
             CaseTransferDetailSerializer(transfer).data,
@@ -415,7 +373,10 @@ class CaseTransferReviewView(generics.UpdateAPIView):
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        transfer = serializer.save()
+        transfer = review_case_transfer(
+            transfer,
+            serializer.validated_data,
+        )
 
         return Response(
             CaseTransferDetailSerializer(transfer).data,
@@ -426,75 +387,10 @@ class CaseTransferReviewView(generics.UpdateAPIView):
 class CaseTransferSendView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @transaction.atomic
     def post(self, request, transfer_id):
-        transfer = get_object_or_404(
-            CaseTransfer.objects.select_for_update(),
-            id=transfer_id,
+        transfer = send_case_transfer(
+            transfer_id=transfer_id,
             patient=request.user,
-        )
-
-        if transfer.status != CaseTransfer.Status.READY_TO_TRANSFER:
-            return Response(
-                {"detail": "전송 준비가 완료되지 않았습니다."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not all([
-            transfer.procedure_medication_agreed,
-            transfer.adverse_effect_clinician_note_agreed,
-            transfer.overseas_ai_processing_agreed,
-        ]):
-            return Response(
-                {"detail": "필수 동의가 완료되지 않았습니다."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not any([
-            transfer.include_patient_info,
-            transfer.include_procedure_info,
-            transfer.include_adverse_effects,
-            transfer.include_clinician_note,
-        ]):
-            return Response(
-                {"detail": "전송 항목을 하나 이상 선택해야 합니다."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        transfer.status = CaseTransfer.Status.TRANSFERRED
-        transfer.transferred_at = timezone.now()
-        transfer.save(
-            update_fields=[
-                "status",
-                "transferred_at",
-                "updated_at",
-            ]
-        )
-
-        medical_case = transfer.medical_case
-        medical_case.partner_hospital = transfer.partner_hospital
-        medical_case.status = MedicalCase.Status.TRANSFERRED
-        medical_case.transferred_at = transfer.transferred_at
-        medical_case.save(
-            update_fields=[
-                "partner_hospital",
-                "status",
-                "transferred_at",
-                "updated_at",
-            ]
-        )
-
-        CaseCollaborationRequest.objects.get_or_create(
-            medical_case=medical_case,
-            defaults={
-                "status": CaseCollaborationRequest.Status.REQUESTED,
-            },
-        )
-
-        symptom_case = transfer.symptom_case
-        symptom_case.status = symptom_case.Status.CONNECTION_REQUESTED
-        symptom_case.save(
-            update_fields=["status", "updated_at"]
         )
 
         return Response(

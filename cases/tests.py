@@ -51,7 +51,7 @@ class CaseAgreementServiceTests(SimpleTestCase):
             for language in ("ko", "en", "ja", "zh")
         }
 
-    @patch("cases.services.OpenAI")
+    @patch("cases.services.ai.OpenAI")
     def test_generate_agreement_requires_all_four_languages(self, openai):
         openai.return_value.responses.create.return_value = (
             SimpleNamespace(
@@ -109,7 +109,7 @@ class CaseAgreementServiceTests(SimpleTestCase):
             request_input,
         )
 
-    @patch("cases.services.OpenAI")
+    @patch("cases.services.ai.OpenAI")
     def test_generate_agreement_rejects_mismatched_evidence_order(
         self,
         openai,
@@ -126,7 +126,7 @@ class CaseAgreementServiceTests(SimpleTestCase):
         ):
             generate_case_agreement({}, [])
 
-    @patch("cases.services.OpenAI")
+    @patch("cases.services.ai.OpenAI")
     def test_opinion_translation_preserves_exact_source(self, openai):
         translations = {
             "ko": "한국어",
@@ -1344,13 +1344,13 @@ class CaseChatRoomListAndReadTests(APITestCase):
 class CaseAgreementAPITests(APITestCase):
     def setUp(self):
         opinion_patcher = patch(
-            "cases.api.agreements.translate_case_agreement_opinion",
+            "cases.services.agreement_service.translate_case_agreement_opinion",
             side_effect=self.build_opinion_translations,
         )
         self.translate_opinion = opinion_patcher.start()
         self.addCleanup(opinion_patcher.stop)
         content_patcher = patch(
-            "cases.api.agreements.translate_case_agreement_content",
+            "cases.services.agreement_service.translate_case_agreement_content",
             side_effect=self.build_agreement_translations,
         )
         self.translate_agreement_content = content_patcher.start()
@@ -2478,7 +2478,7 @@ class CaseTransferFlowTests(APITestCase):
         self.assertFalse(CaseCollaborationRequest.objects.exists())
 
     @patch(
-        "cases.api.agreements.translate_case_agreement_opinion",
+        "cases.services.agreement_service.translate_case_agreement_opinion",
         return_value={
             "ko": "증상 악화 시 내원 바랍니다.",
             "en": "Please visit the hospital if symptoms worsen.",
