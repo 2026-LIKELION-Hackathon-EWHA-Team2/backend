@@ -3,14 +3,12 @@ import logging
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.exceptions import (
-    PermissionDenied,
-    ValidationError,
-)
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ..exceptions import DuplicateCaseActionError
 from ..models import (
     CaseAgreement,
     CaseChatRoom,
@@ -37,6 +35,7 @@ from ..serializers import (
 
 logger = logging.getLogger(__name__)
 
+
 def get_agreement_chat_room(request, case_id, room_id):
     if request.user.user_type != "HOSPITAL":
         raise PermissionDenied("병원 회원만 이용할 수 있습니다.")
@@ -58,6 +57,7 @@ def get_agreement_chat_room(request, case_id, room_id):
         )
 
     return chat_room
+
 
 class CaseAgreementDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -90,7 +90,7 @@ class CaseAgreementDetailView(APIView):
         if CaseAgreement.objects.filter(
             chat_room=chat_room
         ).exists():
-            raise ValidationError(
+            raise DuplicateCaseActionError(
                 "이미 생성된 협진 합의안이 있습니다."
             )
 
@@ -213,7 +213,7 @@ class CaseAgreementGenerateView(APIView):
         if CaseAgreement.objects.filter(
             chat_room=chat_room,
         ).exists():
-            raise ValidationError(
+            raise DuplicateCaseActionError(
                 {
                     "detail": (
                         "이미 생성된 협진 합의안이 있습니다."
@@ -343,7 +343,7 @@ class CaseAgreementGenerateView(APIView):
             if CaseAgreement.objects.filter(
                 chat_room=locked_room,
             ).exists():
-                raise ValidationError(
+                raise DuplicateCaseActionError(
                     {
                         "detail": (
                             "이미 생성된 협진 합의안이 있습니다."

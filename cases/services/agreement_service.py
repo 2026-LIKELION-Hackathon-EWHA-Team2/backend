@@ -3,8 +3,10 @@ import logging
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
-
+from ..domain.transitions import (
+    ensure_agreement_editable,
+    ensure_agreement_reviewable,
+)
 from ..models import (
     CaseAgreement,
     CaseAgreementRevision,
@@ -76,10 +78,7 @@ def edit_case_agreement(*, chat_room, hospital, data, request):
         CaseAgreement.objects.select_for_update(),
         chat_room=chat_room,
     )
-    if agreement.status == CaseAgreement.Status.FINAL:
-        raise ValidationError(
-            {"detail": "최종 합의가 완료된 후에는 수정할 수 없습니다."}
-        )
+    ensure_agreement_editable(agreement)
 
     serializer = CaseAgreementSerializer(
         agreement,
@@ -240,8 +239,7 @@ def review_case_agreement(*, chat_room, hospital):
         CaseAgreement.objects.select_for_update(),
         chat_room=chat_room,
     )
-    if agreement.status == CaseAgreement.Status.FINAL:
-        raise ValidationError("이미 최종 합의가 완료되었습니다.")
+    ensure_agreement_reviewable(agreement)
 
     CaseAgreementReview.objects.update_or_create(
         agreement=agreement,

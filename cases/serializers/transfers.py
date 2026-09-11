@@ -771,21 +771,4 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        if self.instance.status != CaseTransfer.Status.REVIEW_REQUIRED:
-            raise serializers.ValidationError(
-                "번역·구조화 완료 후 입력할 수 있습니다."
-            )
-
-        if not all([
-            attrs.get("procedure_medication_agreed", False),
-            attrs.get(
-                "adverse_effect_clinician_note_agreed",
-                False,
-            ),
-            attrs.get("overseas_ai_processing_agreed", False),
-        ]):
-            raise serializers.ValidationError(
-                "필수 동의가 필요합니다."
-            )
-
         return attrs
