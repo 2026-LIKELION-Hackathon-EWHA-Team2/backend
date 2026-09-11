@@ -9,6 +9,7 @@ from .models import (
     HospitalMatchRequest,
     HospitalRecommendation,
 )
+from .services import get_collaboration_count
 
 
 class HospitalSimpleSerializer(
@@ -62,16 +63,7 @@ class HospitalSimpleSerializer(
         self,
         obj,
     ):
-        from cases.models import MedicalCase
-
-        return (
-            MedicalCase.objects
-            .filter(
-                partner_hospital=obj.user,
-                status=MedicalCase.Status.TRANSFERRED,
-            )
-            .count()
-        )
+        return get_collaboration_count(obj)
 
 
 class HospitalMatchRequestSerializer(

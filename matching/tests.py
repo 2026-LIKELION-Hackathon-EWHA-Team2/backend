@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -14,6 +15,7 @@ from accounts.models import (
     User,
 )
 from accounts.specialties import SpecialtyCode
+from cases.models import MedicalCase
 from matching.models import (
     HospitalMatchRequest,
     HospitalRecommendation,
@@ -21,7 +23,9 @@ from matching.models import (
 from selfsymptoms.models import PatientSymptomCase
 
 from .ai_service import analyze_required_specialty
+from .serializers import HospitalSimpleSerializer
 from .services import calculate_specialty_score
+from .views import _network_hospitals
 
 
 class SpecialtyMatchingScoreTests(TestCase):
@@ -281,7 +285,7 @@ class NetworkHospitalTests(APITestCase):
         )
         self.assertIsNotNone(response.data[0]["distance_km"])
 
-    @patch("matching.views.get_collaboration_count")
+    @patch("matching.serializers.get_collaboration_count")
     def test_list_sorts_by_collaboration_count(self, count):
         count.side_effect = lambda hospital: (
             5 if hospital.pk == self.far_hospital.pk else 1
@@ -296,6 +300,33 @@ class NetworkHospitalTests(APITestCase):
         self.assertEqual(
             [item["hospital_id"] for item in response.data],
             [self.far_hospital.pk, self.near_hospital.pk],
+        )
+
+    def test_hospital_serialization_uses_annotated_collaboration_count(self):
+        for status_value in (
+            MedicalCase.Status.TRANSFERRED,
+            MedicalCase.Status.TRANSFERRED,
+            MedicalCase.Status.READY_TO_TRANSFER,
+        ):
+            MedicalCase.objects.create(
+                patient=self.patient.user,
+                origin_hospital=self.near_hospital.user,
+                partner_hospital=self.far_hospital.user,
+                procedure_name="Laser",
+                procedure_area="Face",
+                procedure_date=date.today(),
+                clinician_note="",
+                status=status_value,
+            )
+
+        hospitals = list(_network_hospitals())
+
+        with self.assertNumQueries(0):
+            data = HospitalSimpleSerializer(hospitals, many=True).data
+
+        self.assertEqual(
+            [item["collaboration_count"] for item in data],
+            [0, 2],
         )
 
     def test_network_selection_reuses_existing_matching_flow(self):

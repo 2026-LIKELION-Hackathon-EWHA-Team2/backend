@@ -12,6 +12,10 @@ from cases.models import MedicalCase
 
 from .ai_service import analyze_required_specialty
 from .models import HospitalRecommendation
+from .selectors import (
+    COLLABORATION_COUNT_ATTRIBUTE,
+    with_collaboration_count,
+)
 
 
 # ==========================================
@@ -165,6 +169,14 @@ def get_collaboration_count(
     hospital.user를 사용한다.
     """
 
+    annotated_count = getattr(
+        hospital,
+        COLLABORATION_COUNT_ATTRIBUTE,
+        None,
+    )
+    if annotated_count is not None:
+        return annotated_count
+
     return (
         MedicalCase.objects
         .filter(
@@ -176,11 +188,12 @@ def get_collaboration_count(
 
 
 def calculate_collaboration_score(
-    hospital,
+    hospital=None,
+    collaboration_count=None,
 ):
-    count = get_collaboration_count(
-        hospital
-    )
+    count = collaboration_count
+    if count is None:
+        count = get_collaboration_count(hospital)
 
     if count >= 10:
         return 100
@@ -281,7 +294,7 @@ def generate_recommendations(
     )
 
     # 병원 계정만 대상으로 함
-    hospitals = (
+    hospitals = with_collaboration_count(
         HospitalProfile.objects
         .filter(
             user__user_type="HOSPITAL"
@@ -334,10 +347,10 @@ def generate_recommendations(
             )
         )
 
-        collaboration_score = (
-            calculate_collaboration_score(
-                hospital
-            )
+        collaboration_count = get_collaboration_count(hospital)
+
+        collaboration_score = calculate_collaboration_score(
+            collaboration_count=collaboration_count,
         )
 
         total_score = (
@@ -348,12 +361,6 @@ def generate_recommendations(
                 match_request.specialty_weight,
                 match_request.distance_weight,
                 match_request.collaboration_weight,
-            )
-        )
-
-        collaboration_count = (
-            get_collaboration_count(
-                hospital
             )
         )
 

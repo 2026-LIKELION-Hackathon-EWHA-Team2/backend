@@ -20,6 +20,7 @@ from .serializers import (
     HospitalRecommendationSerializer,
     HospitalSimpleSerializer,
 )
+from .selectors import with_collaboration_count
 
 from .services import (
     calculate_collaboration_score,
@@ -30,7 +31,7 @@ from .services import (
 )
 
 def _network_hospitals():
-    return (
+    return with_collaboration_count(
         HospitalProfile.objects
         .filter(country__in=["JP", "US", "CN"])
         .select_related("user")
@@ -75,9 +76,6 @@ class NetworkHospitalListView(APIView):
 
             hospital_data = HospitalSimpleSerializer(hospital).data
             hospital_data["distance_km"] = distance_km
-            hospital_data["collaboration_count"] = (
-                get_collaboration_count(hospital)
-            )
             hospitals.append(hospital_data)
 
         if sort == "distance":
@@ -137,7 +135,6 @@ class NetworkHospitalDetailView(APIView):
 
         data = HospitalSimpleSerializer(hospital).data
         data["distance_km"] = distance_km
-        data["collaboration_count"] = get_collaboration_count(hospital)
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -229,7 +226,9 @@ class NetworkHospitalSelectView(APIView):
             distance_score = calculate_distance_score(distance_km)
 
         collaboration_count = get_collaboration_count(hospital)
-        collaboration_score = calculate_collaboration_score(hospital)
+        collaboration_score = calculate_collaboration_score(
+            collaboration_count=collaboration_count,
+        )
         next_rank = (
             match_request.recommendations.aggregate(Max("rank_number"))[
                 "rank_number__max"
