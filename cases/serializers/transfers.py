@@ -1,4 +1,3 @@
-from django.utils import timezone
 from rest_framework import serializers
 
 from accounts.models import User
@@ -790,38 +789,3 @@ class CaseTransferReviewSerializer(serializers.ModelSerializer):
             )
 
         return attrs
-
-    def update(self, instance, validated_data):
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-
-        structured_data = instance.structured_data or {}
-        adverse_effects = list(
-            instance.symptom_case.symptom_types.values_list(
-                "symptom_type",
-                flat=True,
-            )
-        )
-
-        instance.adverse_effects = list(
-            dict.fromkeys(adverse_effects)
-        )
-        instance.include_patient_info = bool(
-            structured_data.get("patient_info")
-        )
-        instance.include_procedure_info = bool(
-            structured_data.get("procedure")
-            or structured_data.get("ingredients")
-        )
-        instance.include_adverse_effects = bool(
-            instance.adverse_effects
-        )
-        instance.include_clinician_note = bool(
-            structured_data.get("clinician_note")
-        )
-
-        instance.agreed_at = timezone.now()
-        instance.status = CaseTransfer.Status.READY_TO_TRANSFER
-        instance.save()
-
-        return instance

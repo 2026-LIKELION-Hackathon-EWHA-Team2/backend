@@ -29,7 +29,7 @@ class AnalyzeDiagnosisDocumentMimeTypeTests(SimpleTestCase):
     def analyze(self, filename, document_bytes):
         document = SimpleUploadedFile(filename, document_bytes)
         with patch(
-            "cases.services.OpenAI",
+            "cases.services.ai.OpenAI",
             return_value=self.openai_client,
         ):
             analyze_diagnosis_document(
