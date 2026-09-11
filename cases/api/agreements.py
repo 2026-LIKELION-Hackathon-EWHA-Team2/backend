@@ -20,6 +20,11 @@ from ..models import (
     CaseCollaborationRequest,
     CaseTransfer,
 )
+from ..selectors.agreement_queries import (
+    get_agreement_chat_room_queryset,
+    get_agreement_detail_queryset,
+    get_agreement_revisions,
+)
 from ..services import (
     SUPPORTED_AGREEMENT_LANGUAGES,
     generate_case_agreement,
@@ -86,11 +91,7 @@ def get_agreement_chat_room(request, case_id, room_id):
         raise PermissionDenied("병원 회원만 이용할 수 있습니다.")
 
     chat_room = get_object_or_404(
-        CaseChatRoom.objects.select_related(
-            "medical_case",
-            "medical_case__origin_hospital",
-            "partner_hospital",
-        ),
+        get_agreement_chat_room_queryset(),
         id=room_id,
         medical_case_id=case_id,
     )
@@ -118,12 +119,7 @@ class CaseAgreementDetailView(APIView):
         )
 
         agreement = get_object_or_404(
-            CaseAgreement.objects
-            .select_related("edited_by", "chat_room")
-            .prefetch_related(
-                "reviews__hospital",
-                "revisions",
-            ),
+            get_agreement_detail_queryset(),
             chat_room=chat_room,
         )
 
@@ -470,11 +466,7 @@ class CaseAgreementRevisionListView(APIView):
             chat_room=chat_room,
         )
 
-        revisions = (
-            agreement.revisions
-            .select_related("edited_by")
-            .order_by("-version")
-        )
+        revisions = get_agreement_revisions(agreement)
 
         serializer = CaseAgreementRevisionSerializer(
             revisions,

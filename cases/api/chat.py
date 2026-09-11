@@ -2,7 +2,6 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Max, OuterRef, Prefetch, Q, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import (
@@ -15,12 +14,16 @@ from rest_framework.views import APIView
 
 from ..models import (
     CaseAgreement,
-    CaseChatMessage,
     CaseChatMessageTranslation,
     CaseChatReadState,
     CaseChatRoom,
 )
 from ..permissions import IsCaseChatParticipant, IsHospital
+from ..selectors.chat_queries import (
+    get_chat_messages,
+    get_chat_room_queryset,
+    get_chat_rooms_for_hospital,
+)
 from ..services import translate_medical_message
 from ..serializers import (
     CaseChatMessageSerializer,
@@ -30,36 +33,6 @@ from ..serializers import (
 logger = logging.getLogger(__name__)
 
 
-def get_total_unread_count_for_hospital(user):
-    last_read_message_id = (
-        CaseChatReadState.objects
-        .filter(
-            chat_room_id=OuterRef("chat_room_id"),
-            hospital=user,
-        )
-        .values("last_read_message_id")[:1]
-    )
-
-    return (
-        CaseChatMessage.objects
-        .filter(
-            Q(chat_room__medical_case__origin_hospital=user)
-            | Q(chat_room__partner_hospital=user),
-            chat_room__is_active=True,
-        )
-        .exclude(sender=user)
-        .annotate(
-            viewer_last_read_message_id=Subquery(
-                last_read_message_id
-            )
-        )
-        .filter(
-            Q(viewer_last_read_message_id__isnull=True)
-            | Q(id__gt=F("viewer_last_read_message_id"))
-        )
-        .count()
-    )
-
 class CaseChatMessageListCreateView(APIView):
     permission_classes = [
         IsAuthenticated,
@@ -68,11 +41,7 @@ class CaseChatMessageListCreateView(APIView):
 
     def get_chat_room(self, request, case_id, room_id):
         chat_room = get_object_or_404(
-            CaseChatRoom.objects.select_related(
-                "medical_case",
-                "medical_case__origin_hospital",
-                "partner_hospital",
-            ),
+            get_chat_room_queryset(),
             id=room_id,
             medical_case_id=case_id,
         )
@@ -91,12 +60,7 @@ class CaseChatMessageListCreateView(APIView):
             room_id,
         )
 
-        messages = (
-            chat_room.messages
-            .select_related("sender")
-            .prefetch_related("translations")
-            .order_by("id")
-        )
+        messages = get_chat_messages(chat_room)
 
         return Response(
             {
@@ -244,45 +208,7 @@ class CaseChatRoomListView(generics.ListAPIView):
                 }
             )
 
-        queryset = (
-            CaseChatRoom.objects
-            .filter(
-                Q(medical_case__origin_hospital=user)
-                | Q(partner_hospital=user),
-                is_active=True,
-            )
-            .select_related(
-                "medical_case",
-                "medical_case__patient",
-                "medical_case__origin_hospital",
-                "medical_case__partner_hospital",
-                "medical_case__collaboration_request",
-                "partner_hospital",
-                "agreement",
-            )
-            .prefetch_related(
-                Prefetch(
-                    "messages",
-                    queryset=(
-                        CaseChatMessage.objects
-                        .select_related("sender")
-                        .prefetch_related("translations")
-                        .order_by("id")
-                    ),
-                    to_attr="chat_list_messages",
-                ),
-                Prefetch(
-                    "read_states",
-                    queryset=CaseChatReadState.objects.filter(
-                        hospital=user,
-                    ),
-                    to_attr="viewer_read_states",
-                ),
-            )
-            .annotate(latest_message_at=Max("messages__created_at"))
-            .order_by("-latest_message_at", "-created_at")
-            .distinct()
-        )
+        queryset = get_chat_rooms_for_hospital(user)
 
         if chat_status == CaseChatRoomListSerializer.ChatStatus.COMPLETED:
             return queryset.filter(
