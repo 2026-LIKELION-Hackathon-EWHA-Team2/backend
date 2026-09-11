@@ -1,14 +1,18 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 
+from ..domain.transitions import (
+    ensure_collaboration_acceptable,
+    ensure_collaboration_case_transferred,
+)
+from ..exceptions import StateConsistencyError
 from ..models import (
     CaseChatReadState,
     CaseChatRoom,
     CaseCollaborationRequest,
     CaseTransfer,
-    MedicalCase,
 )
 
 
@@ -31,15 +35,7 @@ def accept_collaboration_request(*, collaboration_request_id, hospital):
             "해당 협진 요청을 수락할 권한이 없습니다."
         )
 
-    if medical_case.status != MedicalCase.Status.TRANSFERRED:
-        raise ValidationError(
-            {
-                "detail": (
-                    "환자의 의료정보 전송 동의가 "
-                    "완료되지 않은 케이스입니다."
-                )
-            }
-        )
+    ensure_collaboration_case_transferred(collaboration_request)
 
     if collaboration_request.status == CaseCollaborationRequest.Status.ACCEPTED:
         chat_room = CaseChatRoom.objects.filter(
@@ -47,7 +43,7 @@ def accept_collaboration_request(*, collaboration_request_id, hospital):
             partner_hospital=hospital,
         ).first()
         if chat_room is None:
-            raise ValidationError(
+            raise StateConsistencyError(
                 {
                     "detail": (
                         "수락된 요청이지만 채팅방이 존재하지 않습니다."
@@ -56,14 +52,7 @@ def accept_collaboration_request(*, collaboration_request_id, hospital):
             )
         return collaboration_request, chat_room, False
 
-    if collaboration_request.status != CaseCollaborationRequest.Status.REQUESTED:
-        raise ValidationError(
-            {
-                "detail": (
-                    "현재 상태에서는 협진 요청을 수락할 수 없습니다."
-                )
-            }
-        )
+    ensure_collaboration_acceptable(collaboration_request)
 
     chat_room, chat_room_created = CaseChatRoom.objects.get_or_create(
         medical_case=medical_case,
@@ -71,7 +60,7 @@ def accept_collaboration_request(*, collaboration_request_id, hospital):
         defaults={"is_active": True},
     )
     if not chat_room.is_active:
-        raise ValidationError(
+        raise StateConsistencyError(
             {"detail": "해당 케이스의 채팅방이 비활성화된 상태입니다."}
         )
 

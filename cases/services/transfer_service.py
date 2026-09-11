@@ -1,10 +1,12 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
-
 from selfsymptoms.models import DiagnosisAnalysis
 
+from ..domain.transitions import (
+    ensure_transfer_reviewable,
+    ensure_transfer_sendable,
+)
 from ..models import (
     CaseCollaborationRequest,
     CaseIngredient,
@@ -76,6 +78,17 @@ def create_case_transfer_records(
 
 
 def review_case_transfer(transfer, validated_data):
+    ensure_transfer_reviewable(
+        transfer,
+        (
+            validated_data.get("procedure_medication_agreed", False),
+            validated_data.get(
+                "adverse_effect_clinician_note_agreed",
+                False,
+            ),
+            validated_data.get("overseas_ai_processing_agreed", False),
+        ),
+    )
     for field, value in validated_data.items():
         setattr(transfer, field, value)
 
@@ -113,31 +126,7 @@ def send_case_transfer(*, transfer_id, patient):
         patient=patient,
     )
 
-    if transfer.status != CaseTransfer.Status.READY_TO_TRANSFER:
-        raise ValidationError(
-            {"detail": "전송 준비가 완료되지 않았습니다."}
-        )
-
-    if not all(
-        [
-            transfer.procedure_medication_agreed,
-            transfer.adverse_effect_clinician_note_agreed,
-            transfer.overseas_ai_processing_agreed,
-        ]
-    ):
-        raise ValidationError({"detail": "필수 동의가 완료되지 않았습니다."})
-
-    if not any(
-        [
-            transfer.include_patient_info,
-            transfer.include_procedure_info,
-            transfer.include_adverse_effects,
-            transfer.include_clinician_note,
-        ]
-    ):
-        raise ValidationError(
-            {"detail": "전송 항목을 하나 이상 선택해야 합니다."}
-        )
+    ensure_transfer_sendable(transfer)
 
     transfer.status = CaseTransfer.Status.TRANSFERRED
     transfer.transferred_at = timezone.now()
