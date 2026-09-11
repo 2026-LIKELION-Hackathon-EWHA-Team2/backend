@@ -1,8 +1,6 @@
-import re
 import logging
 
 from django.db import transaction
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -21,62 +19,18 @@ from ..models import (
     MedicalCase,
 )
 from ..permissions import IsHospital
+from ..selectors.chat_queries import get_total_unread_count_for_hospital
+from ..selectors.collaboration_queries import (
+    filter_collaboration_requests,
+    get_collaboration_requests_for_participating_hospital,
+)
 from ..serializers import (
     CaseCollaborationRequestDetailSerializer,
     CaseCollaborationRequestSerializer,
 )
-from .chat import get_total_unread_count_for_hospital
 
 logger = logging.getLogger(__name__)
 
-
-def get_collaboration_requests_for_participating_hospital(user):
-    """원 병원 또는 협진 병원으로 참여한 협진 요청을 반환합니다."""
-    return (
-        CaseCollaborationRequest.objects
-        .filter(
-            Q(
-                medical_case__origin_hospital=user,
-            )
-            | Q(
-                medical_case__partner_hospital=user,
-            )
-        )
-        .select_related(
-            "medical_case",
-            "medical_case__patient",
-            "medical_case__origin_hospital",
-            "medical_case__partner_hospital",
-        )
-        .prefetch_related(
-            "medical_case__ingredients",
-            "medical_case__chat_rooms",
-            "medical_case__case_transfers",
-            "medical_case__case_transfers__symptom_case__images",
-        )
-        .order_by("-requested_at")
-    )
-
-def get_received_collaboration_requests_for_user(user):
-    return (
-        CaseCollaborationRequest.objects
-        .filter(
-            medical_case__partner_hospital=user,
-        )
-        .select_related(
-            "medical_case",
-            "medical_case__patient",
-            "medical_case__origin_hospital",
-            "medical_case__partner_hospital",
-        )
-        .prefetch_related(
-            "medical_case__ingredients",
-            "medical_case__chat_rooms",
-            "medical_case__case_transfers",
-            "medical_case__case_transfers__symptom_case__images",
-        )
-        .order_by("-requested_at")
-    )
 
 class CaseCollaborationRequestListView(
     generics.ListAPIView
@@ -115,22 +69,11 @@ class CaseCollaborationRequestListView(
                     }
                 )
 
-            queryset = queryset.filter(status=status_value)
-
-        search = self.request.query_params.get("search", "").strip()
-        if not search:
-            return queryset
-
-        search_filter = Q(
-            medical_case__patient__name__icontains=search,
+        return filter_collaboration_requests(
+            queryset,
+            status_value=status_value,
+            search=self.request.query_params.get("search", ""),
         )
-        case_id_match = re.search(r"(\d+)$", search)
-        if case_id_match is not None:
-            search_filter |= Q(
-                medical_case_id=int(case_id_match.group(1)),
-            )
-
-        return queryset.filter(search_filter)
 
 
 class HospitalDashboardView(APIView):

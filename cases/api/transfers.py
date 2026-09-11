@@ -2,7 +2,6 @@ import logging
 from datetime import date
 
 from django.db import transaction
-from django.db.models import F, Max, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -11,19 +10,26 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import User
-from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
+from selfsymptoms.models import DiagnosisAnalysis
 
 from ..models import (
-    CaseAgreement,
-    CaseAgreementReview,
     CaseIngredient,
-    CaseChatRoom,
     CaseCollaborationRequest,
     CaseTransfer,
     MedicalCase,
 )
 from ..permissions import IsPatient
+from ..selectors.transfer_queries import (
+    get_medical_case_detail_queryset,
+    get_medical_cases_for_user,
+    get_partner_transfer_list,
+    get_partner_transfer_queryset,
+    get_patient_procedure_history_detail,
+    get_patient_procedure_history_list,
+    get_patient_transfer_list,
+    get_patient_transfer_queryset,
+    get_patient_transfers_for_review,
+)
 from ..services import (
     analyze_diagnosis_document,
     generate_patient_symptom_translation_summary,
@@ -47,36 +53,14 @@ class MedicalCaseListView(generics.ListAPIView):
     serializer_class = MedicalCaseDetailSerializer
 
     def get_queryset(self):
-        user = self.request.user
-
-        if user.user_type == "PATIENT":
-            return MedicalCase.objects.filter(
-                patient=user
-            )
-
-        if user.user_type == "HOSPITAL":
-            return MedicalCase.objects.filter(
-                Q(origin_hospital=user)
-                | Q(
-                    partner_hospital=user,
-                    status=MedicalCase.Status.TRANSFERRED,
-                )
-            ).distinct()
-
-        return MedicalCase.objects.none()
+        return get_medical_cases_for_user(self.request.user)
 
 class MedicalCaseDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, case_id):
         medical_case = get_object_or_404(
-            MedicalCase.objects.select_related(
-                "patient",
-                "origin_hospital",
-                "partner_hospital",
-            ).prefetch_related(
-                "ingredients",
-            ),
+            get_medical_case_detail_queryset(),
             id=case_id,
         )
 
@@ -116,48 +100,8 @@ class PatientProcedureHistoryListView(generics.ListAPIView):
     serializer_class = PatientProcedureHistoryListSerializer
 
     def get_queryset(self):
-        return (
-            MedicalCase.objects
-            .filter(
-                patient=self.request.user,
-                case_transfers__symptom_case__status=(
-                    PatientSymptomCase.Status.COMPLETED
-                ),
-            )
-            .select_related(
-                "origin_hospital",
-                "origin_hospital__hospital_profile",
-            )
-            .prefetch_related(
-                Prefetch(
-                    "case_transfers",
-                    queryset=(
-                        CaseTransfer.objects
-                        .filter(
-                            symptom_case__status=(
-                                PatientSymptomCase.Status.COMPLETED
-                            )
-                        )
-                        .select_related("symptom_case")
-                    ),
-                    to_attr="completed_case_transfers",
-                )
-            )
-            .annotate(
-                finalized_at=Max(
-                    "chat_rooms__agreement__finalized_at",
-                    filter=Q(
-                        chat_rooms__agreement__status=(
-                            CaseAgreement.Status.FINAL
-                        )
-                    ),
-                )
-            )
-            .order_by(
-                F("finalized_at").desc(nulls_last=True),
-                "-id",
-            )
-            .distinct()
+        return get_patient_procedure_history_list(
+            self.request.user
         )
 
 
@@ -167,68 +111,8 @@ class PatientProcedureHistoryDetailView(generics.RetrieveAPIView):
     lookup_url_kwarg = "medical_case_id"
 
     def get_queryset(self):
-        final_chat_rooms = (
-            CaseChatRoom.objects
-            .filter(
-                agreement__status=CaseAgreement.Status.FINAL,
-                agreement__finalized_at__isnull=False,
-            )
-            .select_related(
-                "partner_hospital",
-                "agreement",
-            )
-            .prefetch_related(
-                Prefetch(
-                    "agreement__reviews",
-                    queryset=(
-                        CaseAgreementReview.objects
-                        .select_related("hospital")
-                        .order_by("reviewed_at", "id")
-                    ),
-                )
-            )
-            .order_by("-agreement__finalized_at", "-id")
-        )
-
-        return (
-            MedicalCase.objects
-            .filter(
-                patient=self.request.user,
-                case_transfers__symptom_case__status=(
-                    PatientSymptomCase.Status.COMPLETED
-                ),
-                chat_rooms__agreement__status=(
-                    CaseAgreement.Status.FINAL
-                ),
-                chat_rooms__agreement__finalized_at__isnull=False,
-            )
-            .select_related(
-                "origin_hospital",
-                "origin_hospital__hospital_profile",
-                "partner_hospital",
-            )
-            .prefetch_related(
-                Prefetch(
-                    "case_transfers",
-                    queryset=(
-                        CaseTransfer.objects
-                        .filter(
-                            symptom_case__status=(
-                                PatientSymptomCase.Status.COMPLETED
-                            )
-                        )
-                        .select_related("symptom_case")
-                        .order_by("id")
-                    ),
-                    to_attr="completed_case_transfers",
-                ),
-                Prefetch(
-                    "chat_rooms",
-                    queryset=final_chat_rooms,
-                    to_attr="final_agreement_chat_rooms",
-                ),
-            )
-            .distinct()
+        return get_patient_procedure_history_detail(
+            self.request.user
         )
 
 
@@ -247,23 +131,7 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         return CaseTransferCreateSerializer
 
     def get_queryset(self):
-        return (
-            CaseTransfer.objects
-            .filter(
-                patient=self.request.user,
-                status__in=(
-                    CaseTransfer.Status.REVIEW_REQUIRED,
-                    CaseTransfer.Status.READY_TO_TRANSFER,
-                ),
-            )
-            .select_related(
-                "recommendation",
-                "partner_hospital",
-                "medical_case",
-                "medical_case__origin_hospital",
-            )
-            .order_by("-created_at")
-        )
+        return get_patient_transfer_list(self.request.user)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -527,18 +395,7 @@ class CaseTransferDetailView(generics.RetrieveAPIView):
     lookup_url_kwarg = "transfer_id"
 
     def get_queryset(self):
-        return CaseTransfer.objects.filter(
-            patient=self.request.user,
-            status__in=(
-                CaseTransfer.Status.REVIEW_REQUIRED,
-                CaseTransfer.Status.READY_TO_TRANSFER,
-            ),
-        ).select_related(
-            "recommendation",
-            "partner_hospital",
-            "medical_case",
-            "medical_case__origin_hospital",
-        )
+        return get_patient_transfer_queryset(self.request.user)
 
 
 class CaseTransferReviewView(generics.UpdateAPIView):
@@ -548,9 +405,7 @@ class CaseTransferReviewView(generics.UpdateAPIView):
     http_method_names = ["patch"]
 
     def get_queryset(self):
-        return CaseTransfer.objects.filter(
-            patient=self.request.user,
-        )
+        return get_patient_transfers_for_review(self.request.user)
 
     def patch(self, request, *args, **kwargs):
         transfer = self.get_object()
@@ -653,25 +508,7 @@ class PartnerCaseTransferListView(generics.ListAPIView):
     serializer_class = PartnerCaseTransferSerializer
 
     def get_queryset(self):
-        user = self.request.user
-
-        if user.user_type != User.UserType.HOSPITAL:
-            return CaseTransfer.objects.none()
-
-        return (
-            CaseTransfer.objects
-            .filter(
-                partner_hospital=user,
-                status=CaseTransfer.Status.TRANSFERRED,
-            )
-            .select_related(
-                "partner_hospital",
-                "medical_case",
-                "medical_case__origin_hospital",
-                "medical_case__collaboration_request",
-            )
-            .order_by("-transferred_at")
-        )
+        return get_partner_transfer_list(self.request.user)
 
 
 class PartnerCaseTransferDetailView(generics.RetrieveAPIView):
@@ -680,21 +517,4 @@ class PartnerCaseTransferDetailView(generics.RetrieveAPIView):
     lookup_url_kwarg = "transfer_id"
 
     def get_queryset(self):
-        user = self.request.user
-
-        if user.user_type != User.UserType.HOSPITAL:
-            return CaseTransfer.objects.none()
-
-        return (
-            CaseTransfer.objects
-            .filter(
-                partner_hospital=user,
-                status=CaseTransfer.Status.TRANSFERRED,
-            )
-            .select_related(
-                "partner_hospital",
-                "medical_case",
-                "medical_case__origin_hospital",
-                "medical_case__collaboration_request",
-            )
-        )
+        return get_partner_transfer_queryset(self.request.user)
