@@ -173,10 +173,15 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 partner_language,
                 symptom_data,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Diagnosis document analysis failed")
             return Response(
-                {"detail": str(exc)},
+                {
+                    "detail": (
+                        "진단서 분석 서비스 처리 중 "
+                        "오류가 발생했습니다."
+                    )
+                },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -200,10 +205,15 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                 symptom_data,
                 partner_language,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("Case translation summary generation failed")
             return Response(
-                {"detail": str(exc)},
+                {
+                    "detail": (
+                        "의료정보 번역 서비스 처리 중 "
+                        "오류가 발생했습니다."
+                    )
+                },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -223,12 +233,17 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
                         origin_language,
                     )
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception(
                     "Origin hospital translation generation failed"
                 )
                 return Response(
-                    {"detail": str(exc)},
+                    {
+                        "detail": (
+                            "의료정보 번역 서비스 처리 중 "
+                            "오류가 발생했습니다."
+                        )
+                    },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 

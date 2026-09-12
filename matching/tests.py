@@ -150,19 +150,33 @@ class HospitalMatchRequestStatusTests(APITestCase):
 
     @patch("matching.views.generate_recommendations")
     def test_ai_failure_restores_submitted_status(self, generate):
-        generate.side_effect = RuntimeError("AI unavailable")
+        internal_error = "sensitive-provider-error"
+        generate.side_effect = RuntimeError(internal_error)
         symptom_case = PatientSymptomCase.objects.create(
             patient=self.patient,
             status=PatientSymptomCase.Status.SUBMITTED,
         )
 
-        response = self.client.post(
-            self.url,
-            self.payload(symptom_case),
-            format="json",
-        )
+        with self.assertLogs("matching.views", level="ERROR"):
+            response = self.client.post(
+                self.url,
+                self.payload(symptom_case),
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(
+            response.data,
+            {
+                "detail": (
+                    "병원 추천 분석 중 오류가 발생했습니다."
+                )
+            },
+        )
+        self.assertNotIn(
+            internal_error,
+            str(response.data),
+        )
         symptom_case.refresh_from_db()
         self.assertEqual(
             symptom_case.status,

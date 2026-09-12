@@ -1,3 +1,5 @@
+import logging
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import APIException
 from accounts.fields import validate_api_coordinates
@@ -34,6 +36,10 @@ from .services import (
     generate_recommendations,
     get_collaboration_count,
 )
+
+
+logger = logging.getLogger(__name__)
+
 
 def _network_hospitals():
     return with_collaboration_count(
@@ -427,7 +433,11 @@ class HospitalMatchRequestCreateView(APIView):
                 )
             )
 
-        except Exception as error:
+        except Exception:
+
+            logger.exception(
+                "Hospital recommendation generation failed"
+            )
 
             # 분석 실패 시 다시 대기 상태
             match_request.status = (
@@ -459,7 +469,6 @@ class HospitalMatchRequestCreateView(APIView):
                         "병원 추천 분석 중 "
                         "오류가 발생했습니다."
                     ),
-                    "error": str(error),
                 },
                 status=(
                     status.HTTP_502_BAD_GATEWAY
