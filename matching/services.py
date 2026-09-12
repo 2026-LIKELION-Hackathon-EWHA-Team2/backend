@@ -1,3 +1,11 @@
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from accounts.validators import validate_coordinate_pair
+from .validation import (
+    NumericDataError, validate_distance, validate_weights,
+    validate_recommendation_values, validate_count,
+)
+
 from math import (
     asin,
     cos,
@@ -40,6 +48,12 @@ def calculate_distance_km(
     longitude2,
 ):
 
+    try:
+        latitude1, longitude1 = validate_coordinate_pair(latitude1, longitude1)
+        latitude2, longitude2 = validate_coordinate_pair(latitude2, longitude2)
+    except ValidationError as error:
+        raise NumericDataError("Invalid coordinates for distance calculation.") from error
+
     latitude1 = radians(
         float(latitude1)
     )
@@ -72,7 +86,7 @@ def calculate_distance_km(
     )
 
     c = 2 * asin(
-        sqrt(a)
+        sqrt(min(1.0, max(0.0, a)))
     )
 
     earth_radius_km = 6371
@@ -131,6 +145,10 @@ def calculate_specialty_score(
 def calculate_distance_score(
     distance_km,
 ):
+    try:
+        validate_distance(distance_km)
+    except ValidationError as error:
+        raise NumericDataError("Invalid distance.") from error
     if distance_km <= 2:
         return 100
 
@@ -182,6 +200,11 @@ def calculate_collaboration_score(
         hospital
     )
 
+    try:
+        validate_count(count)
+    except ValidationError as error:
+        raise NumericDataError("Invalid collaboration count.") from error
+
     if count >= 10:
         return 100
 
@@ -207,14 +230,21 @@ def calculate_total_score(
     collaboration_weight,
 ):
 
+    try:
+        validate_weights([specialty_weight, distance_weight, collaboration_weight])
+    except ValidationError as error:
+        raise NumericDataError("Invalid recommendation weights.") from error
+    validate_recommendation_values({
+        "specialty_score": specialty_score,
+        "distance_score": distance_score,
+        "collaboration_score": collaboration_score,
+    })
+
     total_weight = (
         specialty_weight
         + distance_weight
         + collaboration_weight
     )
-
-    if total_weight == 0:
-        return 0
 
     score = (
         specialty_score
@@ -237,9 +267,19 @@ def calculate_total_score(
 # 7. 추천 병원 생성
 # ==========================================
 
+@transaction.atomic
 def generate_recommendations(
     match_request,
 ):
+
+    try:
+        validate_coordinate_pair(match_request.search_latitude, match_request.search_longitude)
+        validate_weights([
+            match_request.specialty_weight, match_request.distance_weight,
+            match_request.collaboration_weight,
+        ])
+    except ValidationError as error:
+        raise NumericDataError("Invalid matching request numeric data.") from error
 
     # selfsymptoms case 분석
     required_specialty_result = (
@@ -381,6 +421,10 @@ def generate_recommendations(
             }
         )
 
+    # Validate before sorting or replacing existing recommendations.
+    for result in results:
+        validate_recommendation_values(result)
+
     # AI 추천 리스트 기본 순서
     # 최종 가중 총점 높은 병원부터
     results.sort(
@@ -461,3 +505,11 @@ def generate_recommendations(
     )
 
     return recommendations
+
+
+def optional_distance_km(latitude1, longitude1, latitude2, longitude2):
+    """Missing or corrupt stored coordinates must not break hospital browsing."""
+    try:
+        return calculate_distance_km(latitude1, longitude1, latitude2, longitude2)
+    except NumericDataError:
+        return None

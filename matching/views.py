@@ -1,3 +1,7 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
+from rest_framework.exceptions import APIException
+from accounts.fields import validate_api_coordinates
+from accounts.validators import validate_coordinate_pair
 from django.db import transaction
 from django.db.models import Max
 
@@ -24,6 +28,7 @@ from .serializers import (
 from .services import (
     calculate_collaboration_score,
     calculate_distance_km,
+    optional_distance_km,
     calculate_distance_score,
     generate_recommendations,
     get_collaboration_count,
@@ -66,7 +71,7 @@ class NetworkHospitalListView(APIView):
                 and hospital.latitude is not None
                 and hospital.longitude is not None
             ):
-                distance_km = calculate_distance_km(
+                distance_km = optional_distance_km(
                     patient.latitude,
                     patient.longitude,
                     hospital.latitude,
@@ -128,7 +133,7 @@ class NetworkHospitalDetailView(APIView):
             and hospital.latitude is not None
             and hospital.longitude is not None
         ):
-            distance_km = calculate_distance_km(
+            distance_km = optional_distance_km(
                 patient.latitude,
                 patient.longitude,
                 hospital.latitude,
@@ -183,11 +188,11 @@ class NetworkHospitalSelectView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if patient.latitude is None or patient.longitude is None:
-            return Response(
-                {"detail": "환자 프로필에 위치 좌표를 등록해주세요."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        validate_api_coordinates(patient.latitude, patient.longitude)
+        try:
+            validate_coordinate_pair(hospital.latitude, hospital.longitude, optional=True)
+        except DjangoValidationError as error:
+            raise APIException("병원 좌표 데이터가 올바르지 않습니다.") from error
 
         match_request = (
             HospitalMatchRequest.objects
@@ -248,7 +253,7 @@ class NetworkHospitalSelectView(APIView):
                 "collaboration_score": collaboration_score,
                 "collaboration_count": collaboration_count,
                 "total_score": 0,
-                "distance_km": distance_km,
+                "distance_km": round(distance_km, 2) if distance_km is not None else None,
                 "selection_source": (
                     HospitalRecommendation.SelectionSource.NETWORK
                 ),

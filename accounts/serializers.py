@@ -22,7 +22,7 @@ from .specialties import (
     normalize_specialty_name,
 )
 
-from .fields import CountryCodeField
+from .fields import CountryCodeField, ProfileCoordinatesSerializerMixin, LatitudeField, LongitudeField, validate_api_coordinates
 
 
 # =========================================================
@@ -30,7 +30,7 @@ from .fields import CountryCodeField
 # =========================================================
 
 
-class PatientProfileSerializer(serializers.ModelSerializer):
+class PatientProfileSerializer(ProfileCoordinatesSerializerMixin, serializers.ModelSerializer):
     residence_country = CountryCodeField(
         required=False,
         allow_blank=True,
@@ -210,7 +210,7 @@ class HospitalSignUpSpecialtySerializer(serializers.Serializer):
 # =========================================================
 
 
-class HospitalProfileSerializer(serializers.ModelSerializer):
+class HospitalProfileSerializer(ProfileCoordinatesSerializerMixin, serializers.ModelSerializer):
     country = CountryCodeField()
     preferred_language = serializers.ChoiceField(
         source="user.preferred_language",
@@ -296,6 +296,9 @@ class HospitalProfileSerializer(serializers.ModelSerializer):
 
 
 class BaseSignUpSerializer(serializers.ModelSerializer):
+    latitude = LatitudeField(required=False, allow_null=True, write_only=True)
+    longitude = LongitudeField(required=False, allow_null=True, write_only=True)
+
     login_id = serializers.CharField(
         source="username",
         max_length=50,
@@ -351,6 +354,8 @@ class BaseSignUpSerializer(serializers.ModelSerializer):
             "marketing_agreed",
             "location_info_agreed",
             "preferred_language",
+            "latitude",
+            "longitude",
         )
 
         read_only_fields = (
@@ -358,6 +363,9 @@ class BaseSignUpSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
+        validate_api_coordinates(
+            attrs.get("latitude"), attrs.get("longitude"), optional=True,
+        )
         errors = {}
 
         if not attrs.get("terms_agreed"):
@@ -391,6 +399,8 @@ class BaseSignUpSerializer(serializers.ModelSerializer):
 class PatientSignUpSerializer(
     BaseSignUpSerializer
 ):
+    residence_country = CountryCodeField(write_only=True)
+
     overseas_transfer_agreed = serializers.BooleanField(
         write_only=True,
     )
@@ -418,6 +428,7 @@ class PatientSignUpSerializer(
         fields = (
             *BaseSignUpSerializer.Meta.fields,
             "overseas_transfer_agreed",
+            "residence_country",
             "address",
             "phone",
             "birth_date",
@@ -440,6 +451,9 @@ class PatientSignUpSerializer(
 
     @transaction.atomic
     def create(self, validated_data):
+        residence_country = validated_data.pop("residence_country")
+        latitude = validated_data.pop("latitude", None)
+        longitude = validated_data.pop("longitude", None)
         address = validated_data.pop(
             "address"
         )
@@ -468,6 +482,9 @@ class PatientSignUpSerializer(
 
         PatientProfile.objects.create(
             user=user,
+            residence_country=residence_country,
+            latitude=latitude,
+            longitude=longitude,
             address=address,
             phone=phone,
             birth_date=birth_date,
@@ -592,6 +609,8 @@ class HospitalSignUpSerializer(
 
     @transaction.atomic
     def create(self, validated_data):
+        latitude = validated_data.pop("latitude", None)
+        longitude = validated_data.pop("longitude", None)
         specialties = validated_data.pop("specialties")
         validated_data.pop("specialty_name", None)
 
@@ -628,6 +647,8 @@ class HospitalSignUpSerializer(
 
         hospital = HospitalProfile.objects.create(
             user=user,
+            latitude=latitude,
+            longitude=longitude,
             country=country,
             city=city,
             address=address,

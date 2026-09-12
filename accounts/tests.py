@@ -204,6 +204,7 @@ class PatientSignUpConsentTests(APITestCase):
         self.base_payload = {
             "name": "Anna Kim",
             "login_id": "anna-kim",
+            "residence_country": "KR",
             "password": "StrongPassword!2026",
             "terms_agreed": True,
             "privacy_agreed": True,
