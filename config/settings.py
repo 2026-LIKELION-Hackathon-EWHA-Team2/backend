@@ -22,54 +22,173 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
+def get_required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+
+    if not value:
+        raise ImproperlyConfigured(
+            f"Required environment variable is missing: {name}"
+        )
+
+    return value
+
+
+def get_bool_env(
+    name: str,
+    *,
+    default: bool | None = None,
+) -> bool:
+    value = os.environ.get(name)
+
+    if value is None:
+        if default is None:
+            raise ImproperlyConfigured(
+                f"Required environment variable is missing: {name}"
+            )
+        return default
+
+    normalized = value.strip().lower()
+
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+
+    raise ImproperlyConfigured(
+        f"{name} must be true or false."
+    )
+
+
+def get_list_env(
+    name: str,
+    *,
+    default: list[str] | None = None,
+) -> list[str]:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default or []
+
+    return [
+        item.strip()
+        for item in value.split(",")
+        if item.strip()
+    ]
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY",
-    "django-insecure-local-development-only",
+
+IS_RENDER = bool(
+    os.environ.get("RENDER")
+    or os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = (
-    os.environ.get("DEBUG", "True").lower()
-    == "true"
-)
+APP_ENV = os.environ.get(
+    "APP_ENV",
+    "production" if IS_RENDER else "development",
+).strip().lower()
 
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    ".onrender.com",
-]
+if APP_ENV not in {"development", "production"}:
+    raise ImproperlyConfigured(
+        "APP_ENV must be development or production."
+    )
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "https://borderlesslion-front.vercel.app"
-]
-
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*-tutto-shin-s-projects\.vercel\.app$",
-]
+IS_PRODUCTION = APP_ENV == "production"
 
 RENDER_EXTERNAL_HOSTNAME = os.environ.get(
-    "RENDER_EXTERNAL_HOSTNAME"
-)
+    "RENDER_EXTERNAL_HOSTNAME",
+    "",
+).strip()
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://borderlesslion-front.vercel.app",
-]
+
+
+if IS_PRODUCTION:
+    SECRET_KEY = get_required_env("SECRET_KEY")
+    DEBUG = get_bool_env("DEBUG")
+
+    if DEBUG:
+        raise ImproperlyConfigured(
+            "DEBUG must be false in production."
+        )
+
+    ALLOWED_HOSTS = get_list_env(
+        "ALLOWED_HOSTS"
+    )
+    CORS_ALLOWED_ORIGINS = get_list_env(
+        "CORS_ALLOWED_ORIGINS"
+    )
+    CORS_ALLOWED_ORIGIN_REGEXES = get_list_env(
+        "CORS_ALLOWED_ORIGIN_REGEXES"
+    )
+    CSRF_TRUSTED_ORIGINS = get_list_env(
+        "CSRF_TRUSTED_ORIGINS"
+    )
+
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            "ALLOWED_HOSTS is required in production."
+        )
+
+    if not CORS_ALLOWED_ORIGINS:
+        raise ImproperlyConfigured(
+            "CORS_ALLOWED_ORIGINS is required in production."
+        )
+
+    if not CSRF_TRUSTED_ORIGINS:
+        raise ImproperlyConfigured(
+            "CSRF_TRUSTED_ORIGINS is required in production."
+        )
+else:
+    SECRET_KEY = os.environ.get(
+        "SECRET_KEY",
+        "django-insecure-local-development-only",
+    )
+    DEBUG = get_bool_env(
+        "DEBUG",
+        default=True,
+    )
+
+    ALLOWED_HOSTS = get_list_env(
+        "ALLOWED_HOSTS",
+        default=[
+            "localhost",
+            "127.0.0.1",
+        ],
+    )
+    CORS_ALLOWED_ORIGINS = get_list_env(
+        "CORS_ALLOWED_ORIGINS",
+        default=[
+            "http://localhost:5173",
+        ],
+    )
+    CORS_ALLOWED_ORIGIN_REGEXES = get_list_env(
+        "CORS_ALLOWED_ORIGIN_REGEXES"
+    )
+    CSRF_TRUSTED_ORIGINS = get_list_env(
+        "CSRF_TRUSTED_ORIGINS",
+        default=[
+            "http://localhost:5173",
+        ],
+    )
+
 
 if RENDER_EXTERNAL_HOSTNAME:
-    ALLOWED_HOSTS.append(
-        RENDER_EXTERNAL_HOSTNAME
-    )
+    if RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(
+            RENDER_EXTERNAL_HOSTNAME
+        )
 
-    CSRF_TRUSTED_ORIGINS.append(
+    render_origin = (
         f"https://{RENDER_EXTERNAL_HOSTNAME}"
     )
-    
+
+    if render_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(
+            render_origin
+        )
 
 
 

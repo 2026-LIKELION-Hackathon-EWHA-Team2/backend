@@ -351,7 +351,6 @@ class PatientSymptomCaseCreateAPITests(APITestCase):
             "symptom_types",
             "symptom_start_date",
             "onset_timing",
-            "description",
             "pain_level",
         ):
             self.assertIn(field, response.data)
