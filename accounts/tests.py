@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from cases.models import (
     CaseAgreement,
@@ -19,6 +20,49 @@ from .models import (
     User,
 )
 from .specialties import SpecialtyCode
+
+
+class TokenRefreshTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="token-refresh-user",
+            password="StrongPassword!2026",
+            name="Token Refresh User",
+            user_type=User.UserType.PATIENT,
+        )
+        self.url = reverse("accounts:token-refresh")
+
+    def test_refresh_token_issues_new_access_and_refresh_tokens(self):
+        refresh_token = RefreshToken.for_user(self.user)
+
+        response = self.client.post(
+            self.url,
+            {"refresh": str(refresh_token)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+
+    def test_refresh_token_is_required(self):
+        response = self.client.post(
+            self.url,
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("refresh", response.data)
+
+    def test_invalid_refresh_token_is_rejected(self):
+        response = self.client.post(
+            self.url,
+            {"refresh": "invalid-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class PatientProfileReadTests(APITestCase):
