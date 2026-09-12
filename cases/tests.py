@@ -2157,6 +2157,118 @@ class CaseTransferFlowTests(APITestCase):
                 format="json",
             )
 
+    @patch(
+        "cases.api.transfers.analyze_diagnosis_document"
+    )
+    def test_document_analysis_error_is_not_exposed(self, analyze):
+        internal_error = "sensitive-document-provider-error"
+        analyze.side_effect = RuntimeError(internal_error)
+
+        with self.assertLogs(
+            "cases.api.transfers",
+            level="ERROR",
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
+        )
+        self.assertEqual(
+            response.data,
+            {
+                "detail": (
+                    "진단서 분석 서비스 처리 중 오류가 발생했습니다."
+                )
+            },
+        )
+        self.assertNotIn(internal_error, str(response.data))
+
+    @patch(
+        "cases.api.transfers.generate_patient_symptom_translation_summary"
+    )
+    @patch(
+        "cases.api.transfers.analyze_diagnosis_document"
+    )
+    def test_summary_translation_error_is_not_exposed(
+        self,
+        analyze,
+        summarize,
+    ):
+        analyze.return_value = self.document_result()
+        internal_error = "sensitive-translation-provider-error"
+        summarize.side_effect = RuntimeError(internal_error)
+
+        with self.assertLogs(
+            "cases.api.transfers",
+            level="ERROR",
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
+        )
+        self.assertEqual(
+            response.data,
+            {
+                "detail": (
+                    "의료정보 번역 서비스 처리 중 오류가 발생했습니다."
+                )
+            },
+        )
+        self.assertNotIn(internal_error, str(response.data))
+
+    @patch(
+        "cases.api.transfers.generate_patient_symptom_translation_summary"
+    )
+    @patch(
+        "cases.api.transfers.analyze_diagnosis_document"
+    )
+    def test_origin_translation_error_is_not_exposed(
+        self,
+        analyze,
+        summarize,
+    ):
+        internal_error = "sensitive-origin-provider-error"
+        analyze.side_effect = [
+            self.document_result(),
+            RuntimeError(internal_error),
+        ]
+        summarize.return_value = "Translated summary"
+
+        with self.assertLogs(
+            "cases.api.transfers",
+            level="ERROR",
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
+        )
+        self.assertEqual(
+            response.data,
+            {
+                "detail": (
+                    "의료정보 번역 서비스 처리 중 오류가 발생했습니다."
+                )
+            },
+        )
+        self.assertNotIn(internal_error, str(response.data))
+
     def test_transfer_is_created_from_selected_recommendation(self):
         response = self.create_transfer()
 
