@@ -3,8 +3,6 @@ import logging
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -14,6 +12,7 @@ from ..models import (
     CaseChatRoom,
     CaseTransfer,
 )
+from ..permissions import IsCaseAgreementParticipant
 from ..selectors.agreement_queries import (
     get_agreement_chat_room_queryset,
     get_agreement_detail_queryset,
@@ -36,34 +35,23 @@ from ..serializers import (
 logger = logging.getLogger(__name__)
 
 
-def get_agreement_chat_room(request, case_id, room_id):
-    if request.user.user_type != "HOSPITAL":
-        raise PermissionDenied("병원 회원만 이용할 수 있습니다.")
-
+def get_agreement_chat_room(view, request, case_id, room_id):
     chat_room = get_object_or_404(
         get_agreement_chat_room_queryset(),
         id=room_id,
         medical_case_id=case_id,
     )
-
-    participant_ids = {
-        chat_room.medical_case.origin_hospital_id,
-        chat_room.partner_hospital_id,
-    }
-
-    if request.user.id not in participant_ids:
-        raise PermissionDenied(
-            "해당 협진 합의에 접근할 권한이 없습니다."
-        )
+    view.check_object_permissions(request, chat_room)
 
     return chat_room
 
 
 class CaseAgreementDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsCaseAgreementParticipant]
 
     def get(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,
@@ -82,6 +70,7 @@ class CaseAgreementDetailView(APIView):
 
     def post(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,
@@ -126,6 +115,7 @@ class CaseAgreementDetailView(APIView):
 
     def patch(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,
@@ -149,10 +139,11 @@ class CaseAgreementDetailView(APIView):
 
 
 class CaseAgreementReviewView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsCaseAgreementParticipant]
 
     def post(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,
@@ -171,10 +162,11 @@ class CaseAgreementReviewView(APIView):
         )
 
 class CaseAgreementRevisionListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsCaseAgreementParticipant]
 
     def get(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,
@@ -201,10 +193,11 @@ class CaseAgreementRevisionListView(APIView):
         )
 
 class CaseAgreementGenerateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsCaseAgreementParticipant]
 
     def post(self, request, case_id, room_id):
         chat_room = get_agreement_chat_room(
+            self,
             request,
             case_id,
             room_id,

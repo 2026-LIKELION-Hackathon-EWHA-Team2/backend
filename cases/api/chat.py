@@ -1,12 +1,13 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsHospital
+
 from ..models import CaseAgreement
-from ..permissions import IsCaseChatParticipant, IsHospital
+from ..permissions import IsCaseChatParticipant
 from ..selectors.chat_queries import (
     get_chat_messages,
     get_chat_room_queryset,
@@ -22,10 +23,7 @@ from ..serializers import (
 )
 
 class CaseChatMessageListCreateView(APIView):
-    permission_classes = [
-        IsAuthenticated,
-        IsCaseChatParticipant,
-    ]
+    permission_classes = [IsCaseChatParticipant]
 
     def get_chat_room(self, request, case_id, room_id):
         chat_room = get_object_or_404(

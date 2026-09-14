@@ -3,12 +3,13 @@ import json
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from rest_framework import mixins, permissions, status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework import mixins, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from accounts.models import PatientProfile
+from accounts.permissions import IsPatient
 
 from .models import (
     PatientSymptomCase,
@@ -31,7 +32,7 @@ class PatientSymptomCaseViewSet(
     """
 
     serializer_class = PatientSymptomCaseSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsPatient]
 
     parser_classes = [
         JSONParser,
@@ -41,11 +42,6 @@ class PatientSymptomCaseViewSet(
 
     def get_patient_profile(self):
         user = self.request.user
-
-        if user.user_type != user.UserType.PATIENT:
-            raise PermissionDenied(
-                "환자 계정만 개인 증상 기록 기능을 사용할 수 있습니다."
-            )
 
         try:
             return user.patient_profile
@@ -122,12 +118,6 @@ class PatientSymptomCaseViewSet(
 
     def perform_update(self, serializer):
         symptom_case = self.get_object()
-        patient = self.get_patient_profile()
-
-        if symptom_case.patient_id != patient.patient_id:
-            raise PermissionDenied(
-                "본인의 증상 기록만 수정할 수 있습니다."
-            )
 
         if symptom_case.status != PatientSymptomCase.Status.DRAFT:
             raise ValidationError(
@@ -137,13 +127,6 @@ class PatientSymptomCaseViewSet(
         serializer.save()
 
     def perform_destroy(self, instance):
-        patient = self.get_patient_profile()
-
-        if instance.patient_id != patient.patient_id:
-            raise PermissionDenied(
-                "본인의 증상 기록만 삭제할 수 있습니다."
-            )
-
         if instance.status != PatientSymptomCase.Status.DRAFT:
             raise ValidationError(
                 "제출한 증상 기록은 삭제할 수 없습니다."
@@ -199,7 +182,7 @@ class PatientSymptomCaseViewSet(
 
 class PatientSymptomImageViewSet(viewsets.ModelViewSet):
     serializer_class = PatientSymptomImageSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsPatient]
 
     parser_classes = [
         MultiPartParser,
@@ -208,11 +191,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
 
     def get_patient_profile(self):
         user = self.request.user
-
-        if user.user_type != user.UserType.PATIENT:
-            raise PermissionDenied(
-                "환자 계정만 증상 사진을 등록할 수 있습니다."
-            )
 
         try:
             return user.patient_profile
@@ -265,12 +243,8 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         symptom_case = get_object_or_404(
             PatientSymptomCase,
             symptom_case_id=symptom_case_id,
+            patient=patient,
         )
-
-        if symptom_case.patient_id != patient.patient_id:
-            raise PermissionDenied(
-                "본인의 증상 기록에만 사진을 등록할 수 있습니다."
-            )
 
         if symptom_case.status != PatientSymptomCase.Status.DRAFT:
             raise ValidationError(
@@ -312,15 +286,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         symptom_image = self.get_object()
-        patient = self.get_patient_profile()
-
-        if (
-            symptom_image.symptom_case.patient_id
-            != patient.patient_id
-        ):
-            raise PermissionDenied(
-                "본인의 증상 사진만 수정할 수 있습니다."
-            )
 
         if (
             symptom_image.symptom_case.status
@@ -335,16 +300,6 @@ class PatientSymptomImageViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
-        patient = self.get_patient_profile()
-
-        if (
-            instance.symptom_case.patient_id
-            != patient.patient_id
-        ):
-            raise PermissionDenied(
-                "본인의 증상 사진만 삭제할 수 있습니다."
-            )
-
         if instance.symptom_case.status != PatientSymptomCase.Status.DRAFT:
             raise ValidationError(
                 "제출한 증상 기록의 사진은 삭제할 수 없습니다."
