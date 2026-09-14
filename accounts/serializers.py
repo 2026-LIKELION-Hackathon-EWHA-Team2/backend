@@ -523,6 +523,9 @@ class HospitalSignUpSerializer(
     city = serializers.CharField(
         max_length=100,
         write_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
     )
 
     address = serializers.CharField(
