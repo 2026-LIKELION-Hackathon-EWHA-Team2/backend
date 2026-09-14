@@ -1,0 +1,22 @@
+[run]
+branch = True
+source =
+    accounts
+    cases
+    matching
+    selfsymptoms
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+
+[report]
+show_missing = True
+skip_empty = True
+precision = 2
+
+[xml]
+output = coverage.xml
+
+[html]
+directory = htmlcov

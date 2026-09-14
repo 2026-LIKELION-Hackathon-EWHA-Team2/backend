@@ -341,3 +341,7 @@ python manage.py test
 ---
 
 ![footer](https://capsule-render.vercel.app/api?type=waving&height=150&color=0:7C3AED,50:8B5CF6,100:C4B5FD&section=footer)
+
+### 자동화 테스트 / CI
+
+실행 방법과 개선 지표는 [CI 안내](docs/ci.md)를 참고하세요.
