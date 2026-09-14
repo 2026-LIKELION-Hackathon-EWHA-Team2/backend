@@ -4,8 +4,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsHospital
+
 from ..models import CaseCollaborationRequest
-from ..permissions import IsHospital
 from ..selectors.chat_queries import get_total_unread_count_for_hospital
 from ..selectors.collaboration_queries import (
     filter_collaboration_requests,

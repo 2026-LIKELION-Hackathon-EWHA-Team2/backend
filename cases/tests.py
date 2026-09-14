@@ -167,6 +167,12 @@ class MedicalCaseReadAPITests(APITestCase):
             name="Partner Hospital",
             user_type=User.UserType.HOSPITAL,
         )
+        self.outsider = User.objects.create_user(
+            username="case-outsider",
+            password="TestPassword!2026",
+            name="Outside Hospital",
+            user_type=User.UserType.HOSPITAL,
+        )
         self.medical_case = MedicalCase.objects.create(
             patient=self.patient,
             origin_hospital=self.origin,
@@ -202,6 +208,32 @@ class MedicalCaseReadAPITests(APITestCase):
             response.status_code,
             status.HTTP_405_METHOD_NOT_ALLOWED,
         )
+
+    def test_unrelated_hospital_cannot_read_case(self):
+        self.client.force_authenticate(user=self.outsider)
+
+        response = self.client.get(
+            reverse(
+                "case-detail",
+                kwargs={"case_id": self.medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_partner_cannot_read_case_before_transfer(self):
+        self.medical_case.status = MedicalCase.Status.READY_TO_TRANSFER
+        self.medical_case.save(update_fields=["status"])
+        self.client.force_authenticate(user=self.partner)
+
+        response = self.client.get(
+            reverse(
+                "case-detail",
+                kwargs={"case_id": self.medical_case.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class PatientProcedureHistoryListAPITests(APITestCase):

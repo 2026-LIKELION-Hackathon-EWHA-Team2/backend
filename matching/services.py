@@ -14,7 +14,7 @@ from math import (
     sqrt,
 )
 
-from accounts.models import HospitalProfile
+from accounts.models import HospitalProfile, User
 from accounts.specialties import SpecialtyCode, normalize_specialty_name
 from cases.models import MedicalCase
 
@@ -337,7 +337,7 @@ def generate_recommendations(
     hospitals = with_collaboration_count(
         HospitalProfile.objects
         .filter(
-            user__user_type="HOSPITAL"
+            user__user_type=User.UserType.HOSPITAL
         )
         .select_related(
             "user"

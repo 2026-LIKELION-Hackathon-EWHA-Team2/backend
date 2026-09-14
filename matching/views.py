@@ -8,11 +8,11 @@ from django.db import transaction
 from django.db.models import Max
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import HospitalProfile, PatientProfile
+from accounts.permissions import IsPatient
 from selfsymptoms.models import PatientSymptomCase
 
 from .models import (
@@ -51,7 +51,7 @@ def _network_hospitals():
 
 
 class NetworkHospitalListView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     def get(self, request):
         try:
@@ -111,7 +111,7 @@ class NetworkHospitalListView(APIView):
 
 
 class NetworkHospitalDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     def get(self, request, hospital_id):
         try:
@@ -150,7 +150,7 @@ class NetworkHospitalDetailView(APIView):
 
 
 class NetworkHospitalSelectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     @transaction.atomic
     def post(self, request, hospital_id):
@@ -317,7 +317,7 @@ class NetworkHospitalSelectView(APIView):
 class HospitalMatchRequestCreateView(APIView):
 
     permission_classes = [
-        IsAuthenticated,
+        IsPatient,
     ]
 
     def post(self, request):
@@ -513,7 +513,7 @@ class HospitalMatchRequestDetailView(
 ):
 
     permission_classes = [
-        IsAuthenticated,
+        IsPatient,
     ]
 
     def get(
@@ -577,7 +577,7 @@ class HospitalMatchRequestDetailView(
 class HospitalRecommendationListView(APIView):
 
     permission_classes = [
-        IsAuthenticated,
+        IsPatient,
     ]
 
     def get(
@@ -701,7 +701,7 @@ class HospitalRecommendationSelectView(
 ):
 
     permission_classes = [
-        IsAuthenticated,
+        IsPatient,
     ]
 
     @transaction.atomic
@@ -745,7 +745,8 @@ class HospitalRecommendationSelectView(
                 .get(
                     recommendation_id=(
                         recommendation_id
-                    )
+                    ),
+                    match_request__patient=patient,
                 )
             )
 
@@ -762,24 +763,6 @@ class HospitalRecommendationSelectView(
         match_request = (
             recommendation.match_request
         )
-
-        # -------------------------
-        # 본인의 매칭 요청인지 확인
-        # -------------------------
-
-        if (
-            match_request.patient_id
-            != patient.patient_id
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "본인의 매칭 요청에서만 "
-                        "병원을 선택할 수 있습니다."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         #매칭 요청 상태 확인
         allowed_statuses = {
@@ -906,7 +889,7 @@ class HospitalRecommendationSelectView(
 
 
 class HospitalMatchConsentView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     def patch(self, request, match_request_id):
         try:

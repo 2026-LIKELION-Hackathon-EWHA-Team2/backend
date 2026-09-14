@@ -3,13 +3,16 @@ from datetime import date
 
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import MedicalCase
-from ..permissions import IsPatient
+from accounts.permissions import (
+    IsHospital,
+    IsPatient,
+    IsPatientOrHospital,
+)
+
+from ..permissions import IsMedicalCaseParticipant
 from ..selectors.transfer_queries import (
     get_medical_case_detail_queryset,
     get_medical_cases_for_user,
@@ -45,44 +48,24 @@ logger = logging.getLogger(__name__)
 
 
 class MedicalCaseListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatientOrHospital]
     serializer_class = MedicalCaseDetailSerializer
 
     def get_queryset(self):
         return get_medical_cases_for_user(self.request.user)
 
 class MedicalCaseDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsPatientOrHospital,
+        IsMedicalCaseParticipant,
+    ]
 
     def get(self, request, case_id):
         medical_case = get_object_or_404(
             get_medical_case_detail_queryset(),
             id=case_id,
         )
-
-        is_patient = (
-            medical_case.patient_id
-            == request.user.id
-        )
-        is_origin = (
-            medical_case.origin_hospital_id
-            == request.user.id
-        )
-        is_partner = (
-            medical_case.partner_hospital_id
-            == request.user.id
-            and medical_case.status
-            == MedicalCase.Status.TRANSFERRED
-        )
-
-        if not (
-            is_patient
-            or is_origin
-            or is_partner
-        ):
-            raise PermissionDenied(
-                "해당 케이스를 조회할 권한이 없습니다."
-            )
+        self.check_object_permissions(request, medical_case)
 
         return Response(
             MedicalCaseDetailSerializer(
@@ -114,12 +97,7 @@ class PatientProcedureHistoryDetailView(generics.RetrieveAPIView):
 
 
 class CaseTransferListCreateView(generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def get_permissions(self):
-        if self.request.method == "GET":
-            return [IsPatient()]
-        return super().get_permissions()
+    permission_classes = [IsPatient]
 
     def get_serializer_class(self):
         if self.request.method == "GET":
@@ -372,7 +350,7 @@ class CaseTransferDetailView(generics.RetrieveAPIView):
 
 
 class CaseTransferReviewView(generics.UpdateAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
     serializer_class = CaseTransferReviewSerializer
     lookup_url_kwarg = "transfer_id"
     http_method_names = ["patch"]
@@ -400,7 +378,7 @@ class CaseTransferReviewView(generics.UpdateAPIView):
 
 
 class CaseTransferSendView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     def post(self, request, transfer_id):
         transfer = send_case_transfer(
@@ -415,7 +393,7 @@ class CaseTransferSendView(APIView):
 
 
 class PartnerCaseTransferListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsHospital]
     serializer_class = PartnerCaseTransferSerializer
 
     def get_queryset(self):
@@ -423,7 +401,7 @@ class PartnerCaseTransferListView(generics.ListAPIView):
 
 
 class PartnerCaseTransferDetailView(generics.RetrieveAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsHospital]
     serializer_class = PartnerCaseTransferSerializer
     lookup_url_kwarg = "transfer_id"
 

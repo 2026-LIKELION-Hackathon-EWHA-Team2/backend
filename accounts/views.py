@@ -11,6 +11,7 @@ from .models import (
     HospitalProfile,
     PatientProfile,
 )
+from .permissions import IsHospital, IsPatient, IsPatientOrHospital
 from .serializers import (
     HospitalProfileSerializer,
     HospitalSignUpSerializer,
@@ -164,17 +165,9 @@ class LogoutView(APIView):
 
 
 class PatientProfileView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsPatient]
 
     def get(self, request):
-        if request.user.user_type != "PATIENT":
-            return Response(
-                {
-                    "detail": "환자 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             profile = request.user.patient_profile
 
@@ -196,14 +189,6 @@ class PatientProfileView(APIView):
         )
 
     def patch(self, request):
-        if request.user.user_type != "PATIENT":
-            return Response(
-                {
-                    "detail": "환자 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             profile = request.user.patient_profile
 
@@ -236,17 +221,9 @@ class PatientProfileView(APIView):
 
 
 class HospitalProfileView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsHospital]
 
     def get(self, request):
-        if request.user.user_type != "HOSPITAL":
-            return Response(
-                {
-                    "detail": "병원 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             profile = request.user.hospital_profile
 
@@ -268,14 +245,6 @@ class HospitalProfileView(APIView):
         )
 
     def post(self, request):
-        if request.user.user_type != "HOSPITAL":
-            return Response(
-                {
-                    "detail": "병원 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         if hasattr(
             request.user,
             "hospital_profile",
@@ -307,14 +276,6 @@ class HospitalProfileView(APIView):
         )
 
     def patch(self, request):
-        if request.user.user_type != "HOSPITAL":
-            return Response(
-                {
-                    "detail": "병원 계정만 접근할 수 있습니다."
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         try:
             profile = request.user.hospital_profile
 
@@ -354,7 +315,7 @@ class HospitalListView(APIView):
     """
 
     permission_classes = [
-        IsAuthenticated
+        IsPatientOrHospital
     ]
 
     def get(self, request):

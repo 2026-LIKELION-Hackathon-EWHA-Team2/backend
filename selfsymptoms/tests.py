@@ -256,14 +256,14 @@ class PatientSymptomCaseCreateAPITests(APITestCase):
             user_type=User.UserType.PATIENT,
         )
         PatientProfile.objects.create(user=self.patient_user)
-        hospital_user = User.objects.create_user(
+        self.hospital_user = User.objects.create_user(
             username="figma-hospital",
             password="StrongPassword!2026",
             name="Diagnosis Hospital",
             user_type=User.UserType.HOSPITAL,
         )
         self.hospital = HospitalProfile.objects.create(
-            user=hospital_user,
+            user=self.hospital_user,
             country="KR",
             city="Seoul",
             address="Seoul",
@@ -355,6 +355,13 @@ class PatientSymptomCaseCreateAPITests(APITestCase):
         ):
             self.assertIn(field, response.data)
         self.assertFalse(PatientSymptomCase.objects.exists())
+
+    def test_hospital_cannot_access_patient_symptom_cases(self):
+        self.client.force_authenticate(user=self.hospital_user)
+
+        response = self.client.get(reverse("symptom-case-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_update_and_delete_are_not_available(self):
         create_response = self.client.post(

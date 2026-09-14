@@ -226,20 +226,20 @@ class HospitalMatchRequestStatusTests(APITestCase):
 
 class NetworkHospitalTests(APITestCase):
     def setUp(self):
-        patient_user = User.objects.create_user(
+        self.patient_user = User.objects.create_user(
             username="network-patient",
             password="StrongPassword!2026",
             name="Network Patient",
             user_type=User.UserType.PATIENT,
         )
         self.patient = PatientProfile.objects.create(
-            user=patient_user,
+            user=self.patient_user,
             residence_country="JP",
             city="Tokyo",
             latitude="35.6762000",
             longitude="139.6503000",
         )
-        self.client.force_authenticate(user=patient_user)
+        self.client.force_authenticate(user=self.patient_user)
 
         near_user = User.objects.create_user(
             username="near-japan-hospital",
@@ -298,6 +298,13 @@ class NetworkHospitalTests(APITestCase):
             [self.near_hospital.pk, self.far_hospital.pk],
         )
         self.assertIsNotNone(response.data[0]["distance_km"])
+
+    def test_hospital_cannot_access_patient_matching_api(self):
+        self.client.force_authenticate(user=self.near_hospital.user)
+
+        response = self.client.get(reverse("network-hospital-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("matching.serializers.get_collaboration_count")
     def test_list_sorts_by_collaboration_count(self, count):
