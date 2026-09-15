@@ -21,7 +21,11 @@ from matching.models import (
     HospitalMatchRequest,
     HospitalRecommendation,
 )
-from selfsymptoms.models import PatientSymptomCase
+from selfsymptoms.ai_request_lock import symptom_case_ai_request_lock
+from selfsymptoms.models import (
+    PatientSymptomCase,
+    SymptomCaseAIRequestLock,
+)
 
 from .ai_service import analyze_required_specialty
 from .serializers import HospitalSimpleSerializer
@@ -155,6 +159,36 @@ class HospitalMatchRequestStatusTests(APITestCase):
             symptom_case.status,
             PatientSymptomCase.Status.DRAFT,
         )
+
+    @patch("matching.views.generate_recommendations")
+    def test_duplicate_matching_request_is_blocked_before_ai(
+        self,
+        generate,
+    ):
+        symptom_case = PatientSymptomCase.objects.create(
+            patient=self.patient,
+            status=PatientSymptomCase.Status.SUBMITTED,
+        )
+
+        with symptom_case_ai_request_lock(
+            symptom_case=symptom_case,
+            operation=(
+                SymptomCaseAIRequestLock.Operation.HOSPITAL_MATCHING
+            ),
+            detail="이미 처리 중입니다.",
+        ):
+            response = self.client.post(
+                self.url,
+                self.payload(symptom_case),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.data,
+            {"detail": "이미 병원 추천 요청이 처리 중입니다."},
+        )
+        generate.assert_not_called()
 
     @patch("matching.views.generate_recommendations")
     def test_ai_failure_restores_submitted_status(self, generate):

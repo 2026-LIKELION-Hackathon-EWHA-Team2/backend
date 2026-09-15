@@ -11,6 +11,8 @@ from accounts.permissions import (
     IsPatient,
     IsPatientOrHospital,
 )
+from selfsymptoms.ai_request_lock import prevent_duplicate_ai_requests
+from selfsymptoms.models import SymptomCaseAIRequestLock
 
 from ..permissions import IsMedicalCaseParticipant
 from ..selectors.transfer_queries import (
@@ -107,6 +109,11 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return get_patient_transfer_list(self.request.user)
 
+    @prevent_duplicate_ai_requests(
+        operation=SymptomCaseAIRequestLock.Operation.CASE_TRANSFER,
+        request_field="symptom_case_id",
+        detail="이미 케이스 전송 준비 요청이 처리 중입니다.",
+    )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

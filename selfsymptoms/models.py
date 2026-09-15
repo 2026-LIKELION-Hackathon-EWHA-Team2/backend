@@ -1,3 +1,5 @@
+import uuid
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.core.validators import FileExtensionValidator
@@ -109,6 +111,38 @@ class PatientSymptomCase(models.Model):
             f"증상 기록 {self.symptom_case_id} "
             f"- 환자 {self.patient.patient_id}"
         )
+
+
+class SymptomCaseAIRequestLock(models.Model):
+    class Operation(models.TextChoices):
+        HOSPITAL_MATCHING = "HOSPITAL_MATCHING", "병원 추천"
+        CASE_TRANSFER = "CASE_TRANSFER", "케이스 전송 준비"
+
+    symptom_case = models.ForeignKey(
+        PatientSymptomCase,
+        on_delete=models.CASCADE,
+        related_name="ai_request_locks",
+    )
+    operation = models.CharField(
+        max_length=30,
+        choices=Operation.choices,
+    )
+    token = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+    )
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "SYMPTOM_CASE_AI_REQUEST_LOCK"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("symptom_case", "operation"),
+                name="unique_symptom_case_ai_operation_lock",
+            ),
+        ]
 
 
 class PatientSymptomImage(models.Model):
