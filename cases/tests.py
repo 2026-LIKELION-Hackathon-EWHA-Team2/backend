@@ -2193,6 +2193,10 @@ class CaseTransferFlowTests(APITestCase):
                 return_value=self.document_result(),
             ),
             patch(
+                "cases.api.transfers.translate_diagnosis_analysis",
+                return_value=self.document_result(),
+            ),
+            patch(
                 "cases.api.transfers.generate_patient_symptom_translation_summary",
                 return_value="額の腫れと痛みが報告されています。",
             ),
@@ -2233,6 +2237,30 @@ class CaseTransferFlowTests(APITestCase):
             },
         )
         self.assertNotIn(internal_error, str(response.data))
+
+    @patch(
+        "cases.api.transfers.analyze_diagnosis_document"
+    )
+    def test_invalid_procedure_date_is_not_cached(self, analyze):
+        invalid_result = self.document_result()
+        invalid_result["procedure"]["date"] = "invalid-date"
+        analyze.return_value = invalid_result
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            self.transfer_payload(),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
+        )
+        self.assertFalse(
+            DiagnosisAnalysis.objects.filter(
+                symptom_case=self.symptom_case
+            ).exists()
+        )
 
     @patch(
         "cases.api.transfers.generate_patient_symptom_translation_summary"
@@ -2277,18 +2305,20 @@ class CaseTransferFlowTests(APITestCase):
         "cases.api.transfers.generate_patient_symptom_translation_summary"
     )
     @patch(
+        "cases.api.transfers.translate_diagnosis_analysis"
+    )
+    @patch(
         "cases.api.transfers.analyze_diagnosis_document"
     )
     def test_origin_translation_error_is_not_exposed(
         self,
         analyze,
+        translate,
         summarize,
     ):
         internal_error = "sensitive-origin-provider-error"
-        analyze.side_effect = [
-            self.document_result(),
-            RuntimeError(internal_error),
-        ]
+        analyze.return_value = self.document_result()
+        translate.side_effect = RuntimeError(internal_error)
         summarize.return_value = "Translated summary"
 
         with self.assertLogs(
@@ -2314,6 +2344,143 @@ class CaseTransferFlowTests(APITestCase):
             },
         )
         self.assertNotIn(internal_error, str(response.data))
+        analyze.assert_called_once()
+
+    @patch(
+        "cases.api.transfers.generate_patient_symptom_translation_summary",
+        return_value="Translated summary",
+    )
+    @patch(
+        "cases.api.transfers.translate_diagnosis_analysis"
+    )
+    @patch(
+        "cases.api.transfers.analyze_diagnosis_document"
+    )
+    def test_document_is_analyzed_once_for_multiple_languages(
+        self,
+        analyze,
+        translate,
+        summarize,
+    ):
+        analyze.return_value = self.document_result()
+        translate.return_value = self.document_result()
+
+        response = self.client.post(
+            reverse("case-transfer-list-create"),
+            self.transfer_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        analyze.assert_called_once()
+        translate.assert_called_once_with(
+            self.document_result(),
+            self.origin.preferred_language,
+        )
+
+    def test_retry_reuses_cached_document_analysis(self):
+        with (
+            patch(
+                "cases.api.transfers.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ) as first_analyze,
+            patch(
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
+                side_effect=RuntimeError("temporary translation failure"),
+            ),
+        ):
+            with self.assertLogs(
+                "cases.api.transfers",
+                level="ERROR",
+            ):
+                first_response = self.client.post(
+                    reverse("case-transfer-list-create"),
+                    self.transfer_payload(),
+                    format="json",
+                )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
+        )
+        first_analyze.assert_called_once()
+        cached = DiagnosisAnalysis.objects.get(
+            symptom_case=self.symptom_case
+        )
+        self.assertEqual(cached.analysis_language, "ja")
+        self.assertEqual(len(cached.analysis_input_checksum), 64)
+
+        with (
+            patch(
+                "cases.api.transfers.analyze_diagnosis_document"
+            ) as retry_analyze,
+            patch(
+                "cases.api.transfers.translate_diagnosis_analysis",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
+                return_value="Translated summary",
+            ),
+        ):
+            retry_response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(
+            retry_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        retry_analyze.assert_not_called()
+
+    def test_changed_symptoms_invalidate_cached_document_analysis(self):
+        with (
+            patch(
+                "cases.api.transfers.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
+                side_effect=RuntimeError("temporary translation failure"),
+            ),
+        ):
+            with self.assertLogs(
+                "cases.api.transfers",
+                level="ERROR",
+            ):
+                self.client.post(
+                    reverse("case-transfer-list-create"),
+                    self.transfer_payload(),
+                    format="json",
+                )
+
+        self.symptom_case.description = "Updated swelling and pain"
+        self.symptom_case.save(update_fields=["description", "updated_at"])
+
+        with (
+            patch(
+                "cases.api.transfers.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ) as analyze,
+            patch(
+                "cases.api.transfers.translate_diagnosis_analysis",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.api.transfers.generate_patient_symptom_translation_summary",
+                return_value="Translated summary",
+            ),
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        analyze.assert_called_once()
 
     def test_transfer_is_created_from_selected_recommendation(self):
         response = self.create_transfer()
@@ -2340,6 +2507,10 @@ class CaseTransferFlowTests(APITestCase):
         with (
             patch(
                 "cases.api.transfers.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.api.transfers.translate_diagnosis_analysis",
                 return_value=self.document_result(),
             ),
             patch(
@@ -2372,6 +2543,10 @@ class CaseTransferFlowTests(APITestCase):
         with (
             patch(
                 "cases.api.transfers.analyze_diagnosis_document",
+                return_value=self.document_result(),
+            ),
+            patch(
+                "cases.api.transfers.translate_diagnosis_analysis",
                 return_value=self.document_result(),
             ),
             patch(

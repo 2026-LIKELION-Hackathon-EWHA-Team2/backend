@@ -135,6 +135,8 @@ class DiagnosisAnalysisAdmin(admin.ModelAdmin):
     readonly_fields = (
         "extracted_text",
         "analysis_result",
+        "analysis_language",
+        "analysis_input_checksum",
         "analyzed_at",
         "created_at",
         "updated_at",

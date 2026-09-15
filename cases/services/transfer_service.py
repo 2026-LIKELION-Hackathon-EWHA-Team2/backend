@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -15,6 +18,78 @@ from ..models import (
 )
 
 
+def _calculate_analysis_input_checksum(document, symptom_data):
+    digest = hashlib.sha256()
+    document.open("rb")
+    try:
+        while chunk := document.read(64 * 1024):
+            digest.update(chunk)
+    finally:
+        document.close()
+    digest.update(b"\0")
+    digest.update(
+        json.dumps(
+            symptom_data,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    return digest.hexdigest()
+
+
+def get_or_analyze_diagnosis_document(
+    *,
+    symptom_case,
+    target_language,
+    symptom_data,
+    analyzer,
+):
+    checksum = _calculate_analysis_input_checksum(
+        symptom_case.diagnosis_document,
+        symptom_data,
+    )
+    cached = DiagnosisAnalysis.objects.filter(
+        symptom_case=symptom_case,
+        analysis_input_checksum=checksum,
+        analysis_language=target_language,
+    ).first()
+
+    if cached and isinstance(cached.analysis_result, dict):
+        required_fields = {
+            "symptoms",
+            "procedure",
+            "ingredients",
+            "clinician_note",
+        }
+        if required_fields.issubset(cached.analysis_result):
+            return {
+                "extracted_text": cached.extracted_text or "",
+                **cached.analysis_result,
+            }
+
+    result = analyzer(
+        symptom_case.diagnosis_document,
+        target_language,
+        symptom_data,
+    )
+    DiagnosisAnalysis.objects.update_or_create(
+        symptom_case=symptom_case,
+        defaults={
+            "extracted_text": result["extracted_text"],
+            "analysis_result": {
+                key: value
+                for key, value in result.items()
+                if key != "extracted_text"
+            },
+            "analysis_language": target_language,
+            "analysis_input_checksum": checksum,
+            "analyzed_at": timezone.now(),
+        },
+    )
+    return result
+
+
 @transaction.atomic
 def create_case_transfer_records(
     *,
@@ -30,19 +105,6 @@ def create_case_transfer_records(
     partner_language,
     origin_language,
 ):
-    DiagnosisAnalysis.objects.update_or_create(
-        symptom_case=symptom_case,
-        defaults={
-            "extracted_text": document_result["extracted_text"],
-            "analysis_result": {
-                key: value
-                for key, value in document_result.items()
-                if key != "extracted_text"
-            },
-            "analyzed_at": timezone.now(),
-        },
-    )
-
     medical_case = MedicalCase.objects.create(
         patient=patient,
         origin_hospital=symptom_case.diagnosed_hospital.user,
