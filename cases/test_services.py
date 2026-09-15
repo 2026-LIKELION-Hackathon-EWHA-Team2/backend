@@ -5,7 +5,10 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
-from cases.services import analyze_diagnosis_document
+from cases.services import (
+    analyze_diagnosis_document,
+    translate_diagnosis_analysis,
+)
 
 
 class AnalyzeDiagnosisDocumentMimeTypeTests(SimpleTestCase):
@@ -113,5 +116,65 @@ class AnalyzeDiagnosisDocumentMimeTypeTests(SimpleTestCase):
 
         openai.assert_called_once_with(
             timeout=settings.OPENAI_DOCUMENT_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
+
+
+class TranslateDiagnosisAnalysisTests(SimpleTestCase):
+    @patch("cases.services.ai.OpenAI")
+    def test_reuses_structured_result_and_preserves_numeric_fields(
+        self,
+        openai,
+    ):
+        document_result = {
+            "extracted_text": "sensitive raw document text",
+            "symptoms": {
+                "description": "Swelling",
+                "start_date": "2026-08-10",
+                "onset_timing": "After treatment",
+                "pain_level": 3,
+                "areas": ["Forehead"],
+                "types": ["Pain"],
+            },
+            "procedure": {
+                "name": "Botox",
+                "area": "Forehead",
+                "date": "2026-08-09",
+            },
+            "ingredients": ["Botulinum Toxin Type A"],
+            "clinician_note": "Observe symptoms.",
+        }
+        translated_result = {
+            **document_result,
+            "symptoms": {
+                **document_result["symptoms"],
+                "description": "부기",
+                "start_date": "2099-01-01",
+                "pain_level": 99,
+            },
+            "procedure": {
+                **document_result["procedure"],
+                "name": "보톡스",
+                "area": "이마",
+                "date": "2099-01-01",
+            },
+            "clinician_note": "증상을 관찰하세요.",
+        }
+        openai.return_value.responses.create.return_value.output_text = (
+            json.dumps(translated_result)
+        )
+
+        result = translate_diagnosis_analysis(document_result, "ko")
+
+        self.assertEqual(result["symptoms"]["start_date"], "2026-08-10")
+        self.assertEqual(result["symptoms"]["pain_level"], 3)
+        self.assertEqual(result["procedure"]["date"], "2026-08-09")
+        self.assertEqual(result["procedure"]["name"], "보톡스")
+        request_input = openai.return_value.responses.create.call_args.kwargs[
+            "input"
+        ]
+        self.assertNotIn("extracted_text", json.loads(request_input))
+        openai.assert_called_once_with(
+            timeout=settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS,
             max_retries=settings.OPENAI_MAX_RETRIES,
         )

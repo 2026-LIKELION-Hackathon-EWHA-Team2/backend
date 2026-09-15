@@ -365,6 +365,18 @@ class DiagnosisAnalysis(models.Model):
         blank=True,
     )
 
+    analysis_language = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+    )
+
+    analysis_input_checksum = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+    )
+
     analyzed_at = models.DateTimeField(
         null=True,
         blank=True,

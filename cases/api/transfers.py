@@ -12,7 +12,10 @@ from accounts.permissions import (
     IsPatientOrHospital,
 )
 from selfsymptoms.ai_request_lock import prevent_duplicate_ai_requests
-from selfsymptoms.models import SymptomCaseAIRequestLock
+from selfsymptoms.models import (
+    DiagnosisAnalysis,
+    SymptomCaseAIRequestLock,
+)
 
 from ..permissions import IsMedicalCaseParticipant
 from ..selectors.transfer_queries import (
@@ -29,9 +32,11 @@ from ..selectors.transfer_queries import (
 from ..services import (
     analyze_diagnosis_document,
     generate_patient_symptom_translation_summary,
+    translate_diagnosis_analysis,
 )
 from ..services.transfer_service import (
     create_case_transfer_records,
+    get_or_analyze_diagnosis_document,
     review_case_transfer,
     send_case_transfer,
 )
@@ -153,10 +158,11 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         )
 
         try:
-            document_result = analyze_diagnosis_document(
-                symptom_case.diagnosis_document,
-                partner_language,
-                symptom_data,
+            document_result = get_or_analyze_diagnosis_document(
+                symptom_case=symptom_case,
+                target_language=partner_language,
+                symptom_data=symptom_data,
+                analyzer=analyze_diagnosis_document,
             )
         except Exception:
             logger.exception("Diagnosis document analysis failed")
@@ -175,6 +181,9 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
         try:
             procedure_date = date.fromisoformat(procedure["date"])
         except (TypeError, ValueError):
+            DiagnosisAnalysis.objects.filter(
+                symptom_case=symptom_case
+            ).delete()
             return Response(
                 {
                     "detail": (
@@ -207,10 +216,9 @@ class CaseTransferListCreateView(generics.ListCreateAPIView):
 
         if origin_language != partner_language:
             try:
-                origin_document_result = analyze_diagnosis_document(
-                    symptom_case.diagnosis_document,
+                origin_document_result = translate_diagnosis_analysis(
+                    document_result,
                     origin_language,
-                    symptom_data,
                 )
                 origin_ai_summary = (
                     generate_patient_symptom_translation_summary(
