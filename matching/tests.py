@@ -3,6 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -80,11 +81,13 @@ class SpecialtyMatchingScoreTests(TestCase):
 
         self.assertEqual(score, 0)
 
-    @patch("matching.ai_service.client.responses.create")
-    def test_ai_result_includes_stable_specialty_code(self, create):
-        create.return_value.output_text = json.dumps(
-            {"required_specialty": "색소"},
-            ensure_ascii=False,
+    @patch("matching.ai_service.OpenAI")
+    def test_ai_result_includes_stable_specialty_code(self, openai):
+        openai.return_value.responses.create.return_value.output_text = (
+            json.dumps(
+                {"required_specialty": "색소"},
+                ensure_ascii=False,
+            )
         )
         empty_relation = Mock()
         empty_relation.all.return_value = []
@@ -105,6 +108,11 @@ class SpecialtyMatchingScoreTests(TestCase):
                 "specialty_code": SpecialtyCode.PIGMENTATION,
                 "specialty_name": "색소",
             },
+        )
+
+        openai.assert_called_once_with(
+            timeout=settings.OPENAI_MATCHING_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
         )
 
 

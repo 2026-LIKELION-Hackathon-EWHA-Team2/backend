@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 from django.urls import reverse
@@ -108,6 +109,10 @@ class CaseAgreementServiceTests(SimpleTestCase):
             "consultation chat at this time.",
             request_input,
         )
+        openai.assert_called_once_with(
+            timeout=settings.OPENAI_AGREEMENT_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
 
     @patch("cases.services.ai.OpenAI")
     def test_generate_agreement_rejects_mismatched_evidence_order(
@@ -145,6 +150,10 @@ class CaseAgreementServiceTests(SimpleTestCase):
 
         self.assertEqual(result["ko"], "의료진 원문")
         self.assertEqual(result["ja"], "日本語")
+        openai.assert_called_once_with(
+            timeout=settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
 
 
 class MedicalCaseReadAPITests(APITestCase):

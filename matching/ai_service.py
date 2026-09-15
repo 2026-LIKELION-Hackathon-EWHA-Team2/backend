@@ -6,7 +6,11 @@ from openai import OpenAI
 from accounts.models import MedicalSpecialty
 
 
-client = OpenAI()
+def _create_openai_client():
+    return OpenAI(
+        timeout=settings.OPENAI_MATCHING_TIMEOUT_SECONDS,
+        max_retries=settings.OPENAI_MAX_RETRIES,
+    )
 
 
 def analyze_required_specialty(
@@ -156,6 +160,7 @@ def analyze_required_specialty(
 }}
 """
 
+    client = _create_openai_client()
     response = client.responses.create(
         model=settings.OPENAI_MATCHING_MODEL,
         input=prompt,

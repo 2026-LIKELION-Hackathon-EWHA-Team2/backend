@@ -27,6 +27,13 @@ NO_CLINICAL_AGREEMENT_JUDGMENTS = {
 }
 
 
+def _create_openai_client(timeout_seconds):
+    return OpenAI(
+        timeout=timeout_seconds,
+        max_retries=settings.OPENAI_MAX_RETRIES,
+    )
+
+
 def normalize_agreement_language(language):
     if language in SUPPORTED_AGREEMENT_LANGUAGES:
         return language
@@ -157,7 +164,9 @@ def translate_medical_message(
     if source_language == target_language:
         return text
 
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS
+    )
 
     source_name = LANGUAGE_NAMES.get(
         source_language,
@@ -199,7 +208,9 @@ def translate_medical_message(
 
 
 def generate_case_agreement(case_data, messages):
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_AGREEMENT_TIMEOUT_SECONDS
+    )
 
     conversation = "\n".join(
         (
@@ -315,7 +326,9 @@ def translate_case_agreement_content(
         },
         ensure_ascii=False,
     )
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS
+    )
     response = client.responses.create(
         model=settings.OPENAI_TRANSLATION_MODEL,
         reasoning={"effort": "low"},
@@ -347,7 +360,9 @@ def translate_case_agreement_opinion(text, source_language):
         language: "string"
         for language in SUPPORTED_AGREEMENT_LANGUAGES
     }
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS
+    )
     response = client.responses.create(
         model=settings.OPENAI_TRANSLATION_MODEL,
         reasoning={"effort": "low"},
@@ -405,7 +420,9 @@ def generate_patient_symptom_translation_summary(
         target_language,
     )
 
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_TRANSLATION_TIMEOUT_SECONDS
+    )
     response = client.responses.create(
         model=settings.OPENAI_TRANSLATION_MODEL,
         reasoning={"effort": "low"},
@@ -476,7 +493,9 @@ def analyze_diagnosis_document(
         target_language,
         target_language,
     )
-    client = OpenAI()
+    client = _create_openai_client(
+        settings.OPENAI_DOCUMENT_TIMEOUT_SECONDS
+    )
     response = client.responses.create(
         model=settings.OPENAI_DOCUMENT_MODEL,
         reasoning={"effort": "low"},
