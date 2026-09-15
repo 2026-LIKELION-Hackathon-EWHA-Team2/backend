@@ -311,6 +311,11 @@ OPENAI_MAX_RETRIES = get_non_negative_int_env(
     default=1,
 )
 
+AI_REQUEST_LOCK_TIMEOUT_SECONDS = get_positive_float_env(
+    "AI_REQUEST_LOCK_TIMEOUT_SECONDS",
+    default=600,
+)
+
 REST_USE_JWT = True
 
 SIMPLE_JWT = {

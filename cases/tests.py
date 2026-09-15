@@ -15,7 +15,12 @@ from rest_framework.test import APITestCase
 
 from accounts.models import HospitalProfile, PatientProfile, User
 from matching.models import HospitalMatchRequest, HospitalRecommendation
-from selfsymptoms.models import DiagnosisAnalysis, PatientSymptomCase
+from selfsymptoms.ai_request_lock import symptom_case_ai_request_lock
+from selfsymptoms.models import (
+    DiagnosisAnalysis,
+    PatientSymptomCase,
+    SymptomCaseAIRequestLock,
+)
 
 from .models import (
     CaseAgreement,
@@ -2409,6 +2414,29 @@ class CaseTransferFlowTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("cases.api.transfers.analyze_diagnosis_document")
+    def test_duplicate_transfer_processing_is_blocked_before_ai(
+        self,
+        analyze,
+    ):
+        with symptom_case_ai_request_lock(
+            symptom_case=self.symptom_case,
+            operation=SymptomCaseAIRequestLock.Operation.CASE_TRANSFER,
+            detail="이미 처리 중입니다.",
+        ):
+            response = self.client.post(
+                reverse("case-transfer-list-create"),
+                self.transfer_payload(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.data,
+            {"detail": "이미 케이스 전송 준비 요청이 처리 중입니다."},
+        )
+        analyze.assert_not_called()
 
     def test_duplicate_transfer_is_rejected(self):
         first_response = self.create_transfer()

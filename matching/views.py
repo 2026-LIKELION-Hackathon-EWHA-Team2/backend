@@ -13,7 +13,11 @@ from rest_framework.views import APIView
 
 from accounts.models import HospitalProfile, PatientProfile
 from accounts.permissions import IsPatient
-from selfsymptoms.models import PatientSymptomCase
+from selfsymptoms.ai_request_lock import prevent_duplicate_ai_requests
+from selfsymptoms.models import (
+    PatientSymptomCase,
+    SymptomCaseAIRequestLock,
+)
 
 from .models import (
     HospitalMatchRequest,
@@ -320,6 +324,13 @@ class HospitalMatchRequestCreateView(APIView):
         IsPatient,
     ]
 
+    @prevent_duplicate_ai_requests(
+        operation=(
+            SymptomCaseAIRequestLock.Operation.HOSPITAL_MATCHING
+        ),
+        request_field="symptom_case",
+        detail="이미 병원 추천 요청이 처리 중입니다.",
+    )
     def post(self, request):
 
         # -------------------------
