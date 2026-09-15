@@ -76,6 +76,50 @@ def get_list_env(
         if item.strip()
     ]
 
+
+def get_positive_float_env(
+    name: str,
+    *,
+    default: float,
+) -> float:
+    raw_value = os.environ.get(name, str(default)).strip()
+
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"{name} must be a positive number."
+        ) from exc
+
+    if value <= 0:
+        raise ImproperlyConfigured(
+            f"{name} must be a positive number."
+        )
+
+    return value
+
+
+def get_non_negative_int_env(
+    name: str,
+    *,
+    default: int,
+) -> int:
+    raw_value = os.environ.get(name, str(default)).strip()
+
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"{name} must be a non-negative integer."
+        ) from exc
+
+    if value < 0:
+        raise ImproperlyConfigured(
+            f"{name} must be a non-negative integer."
+        )
+
+    return value
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -240,6 +284,31 @@ OPENAI_MATCHING_MODEL = os.environ.get(
 OPENAI_DOCUMENT_MODEL = os.environ.get(
     "OPENAI_DOCUMENT_MODEL",
     OPENAI_TRANSLATION_MODEL,
+)
+
+OPENAI_TRANSLATION_TIMEOUT_SECONDS = get_positive_float_env(
+    "OPENAI_TRANSLATION_TIMEOUT_SECONDS",
+    default=30,
+)
+
+OPENAI_AGREEMENT_TIMEOUT_SECONDS = get_positive_float_env(
+    "OPENAI_AGREEMENT_TIMEOUT_SECONDS",
+    default=45,
+)
+
+OPENAI_MATCHING_TIMEOUT_SECONDS = get_positive_float_env(
+    "OPENAI_MATCHING_TIMEOUT_SECONDS",
+    default=30,
+)
+
+OPENAI_DOCUMENT_TIMEOUT_SECONDS = get_positive_float_env(
+    "OPENAI_DOCUMENT_TIMEOUT_SECONDS",
+    default=45,
+)
+
+OPENAI_MAX_RETRIES = get_non_negative_int_env(
+    "OPENAI_MAX_RETRIES",
+    default=1,
 )
 
 REST_USE_JWT = True

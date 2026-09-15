@@ -1,6 +1,7 @@
 import json
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
@@ -93,3 +94,24 @@ class AnalyzeDiagnosisDocumentMimeTypeTests(SimpleTestCase):
             self.analyze("diagnosis.pdf", b"not a supported document")
 
         self.openai_client.responses.create.assert_not_called()
+
+    def test_document_analysis_uses_bounded_openai_client(self):
+        document = SimpleUploadedFile(
+            "diagnosis.pdf",
+            b"%PDF-1.7\nmock pdf",
+        )
+
+        with patch("cases.services.ai.OpenAI") as openai:
+            openai.return_value.responses.create.return_value.output_text = (
+                self.openai_client.responses.create.return_value.output_text
+            )
+            analyze_diagnosis_document(
+                document=document,
+                target_language="ko",
+                symptom_data={},
+            )
+
+        openai.assert_called_once_with(
+            timeout=settings.OPENAI_DOCUMENT_TIMEOUT_SECONDS,
+            max_retries=settings.OPENAI_MAX_RETRIES,
+        )
